@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.rehanu04.resumematchv2.data.UserProfileStore
+import com.rehanu04.resumematchv2.util.isOnline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,7 +34,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.Locale
-import java.util.concurrent.TimeUnit // ✅ Added for Timeouts
+import java.util.concurrent.TimeUnit
 
 data class ChatMessage(val text: String, val isUser: Boolean, val isLoading: Boolean = false)
 
@@ -55,14 +57,24 @@ fun AiAssistantScreen(
 
     var messages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var isInitialized by remember { mutableStateOf(false) }
+    var hasInternet by remember { mutableStateOf(isOnline(context)) }
 
     LaunchedEffect(userProfile.chatHistoryJson) {
         if (!isInitialized) {
-            val type = object : TypeToken<List<ChatMessage>>() {}.type
-            val saved: List<ChatMessage>? = gson.fromJson(userProfile.chatHistoryJson, type)
-            messages = if (saved.isNullOrEmpty()) {
-                listOf(ChatMessage("Hi! I'm your AI Resume Agent. Tell me about your recent projects, and I'll extract the details into your Master Vault.", false))
-            } else saved
+            try {
+                val type = object : TypeToken<List<ChatMessage>>() {}.type
+                val savedRaw: List<ChatMessage>? = gson.fromJson(userProfile.chatHistoryJson, type)
+
+                val saved = savedRaw?.filterNotNull()?.map {
+                    ChatMessage(it.text ?: "", it.isUser, it.isLoading)
+                }
+
+                messages = if (saved.isNullOrEmpty()) {
+                    listOf(ChatMessage("Hi! I'm your AI Career Coach. How are you doing today? Tell me about your recent projects, or tell me your name and a bit about yourself!", false))
+                } else saved
+            } catch (e: Exception) {
+                messages = listOf(ChatMessage("Hi! I'm your AI Career Coach. Let's start fresh. Tell me about your experience!", false))
+            }
             isInitialized = true
         }
     }
@@ -97,72 +109,95 @@ fun AiAssistantScreen(
     }
 
     fun sendMessage() {
+        hasInternet = isOnline(context)
+        if (!hasInternet) { Toast.makeText(context, "You are currently offline!", Toast.LENGTH_SHORT).show(); return }
         if (currentInput.isBlank()) return
         val transcript = currentInput
         currentInput = ""
 
-        messages = messages + ChatMessage(transcript, true) + ChatMessage("Thinking...", false, true)
+        messages = messages + ChatMessage(transcript, true) + ChatMessage("Thinking...", false, isLoading = true)
 
         scope.launch {
             try {
-                // ✅ FIX 1: Extended Timeouts for Render Cold Starts
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(60, TimeUnit.SECONDS)
-                    .readTimeout(60, TimeUnit.SECONDS)
-                    .writeTimeout(60, TimeUnit.SECONDS)
-                    .build()
-
+                val client = OkHttpClient.Builder().connectTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
                 val jsonBody = JSONObject().apply { put("transcript", transcript) }.toString()
-
-                // Keep fallback just in case, but rely on apiBaseUrl passed from MainActivity
                 val safeBaseUrl = if (apiBaseUrl.isNotBlank()) apiBaseUrl else "http://192.168.1.6:8000"
 
-                val req = Request.Builder()
-                    .url(safeBaseUrl.trimEnd('/') + "/v1/ai/parse-dump")
-                    .post(jsonBody.toRequestBody("application/json".toMediaType()))
-                    .build()
+                val req = Request.Builder().url(safeBaseUrl.trimEnd('/') + "/v1/ai/parse-dump").post(jsonBody.toRequestBody("application/json".toMediaType())).build()
 
                 val (isSuccess, responseStr) = withContext(Dispatchers.IO) {
                     client.newCall(req).execute().use { response -> response.isSuccessful to response.body?.string() }
                 }
 
-                if (isSuccess && responseStr != null) {
-                    val parsedObj = JSONObject(responseStr)
-                    val aiReply = parsedObj.optString("reply", "I've saved your details to the Vault!")
+                if (isSuccess && !responseStr.isNullOrBlank()) {
+                    try {
+                        val parsedObj = JSONObject(responseStr)
+                        val aiReply = parsedObj.optString("reply", "I've saved your details to the Vault!")
 
-                    val newProjectsJson = parsedObj.optJSONArray("projects")?.toString() ?: "[]"
-                    val newExperienceJson = parsedObj.optJSONArray("experience")?.toString() ?: "[]"
-                    val newSkillsJson = parsedObj.optJSONArray("skills_suggested")?.toString() ?: "[]"
+                        // ✨ FIXED: Check for Personal Info!
+                        val aiFirstName = parsedObj.optString("first_name", "").trim()
+                        val aiLastName = parsedObj.optString("last_name", "").trim()
+                        val aiRole = parsedObj.optString("target_role", "").trim()
+                        val aiSummary = parsedObj.optString("summary", "").trim()
 
-                    val listTypeProj = object : TypeToken<List<AiProject>>() {}.type
-                    val listTypeExp = object : TypeToken<List<AiExperience>>() {}.type
-                    val listTypeSkill = object : TypeToken<List<String>>() {}.type
+                        val newFirstName = if (aiFirstName.isNotBlank()) aiFirstName else userProfile.firstName
+                        val newLastName = if (aiLastName.isNotBlank()) aiLastName else userProfile.lastName
+                        val newTargetRole = if (aiRole.isNotBlank()) aiRole else userProfile.targetRole
+                        val newSummary = if (aiSummary.isNotBlank()) {
+                            if (userProfile.summary.isBlank()) aiSummary else "${userProfile.summary}\n$aiSummary"
+                        } else userProfile.summary
 
-                    val existingProjects: List<AiProject> = gson.fromJson(userProfile.savedProjectsJson, listTypeProj) ?: emptyList()
-                    val existingExp: List<AiExperience> = gson.fromJson(userProfile.savedExperienceJson, listTypeExp) ?: emptyList()
-                    val existingSkills: List<String> = gson.fromJson(userProfile.savedSkillsJson, listTypeSkill) ?: emptyList()
+                        // Check for Vault Info
+                        val newProjectsJson = parsedObj.optJSONArray("projects")?.toString() ?: "[]"
+                        val newExperienceJson = parsedObj.optJSONArray("experience")?.toString() ?: "[]"
+                        val newSkillsJson = parsedObj.optJSONArray("skills_suggested")?.toString() ?: "[]"
 
-                    val parsedProjects: List<AiProject> = gson.fromJson(newProjectsJson, listTypeProj) ?: emptyList()
-                    val parsedExp: List<AiExperience> = gson.fromJson(newExperienceJson, listTypeExp) ?: emptyList()
-                    val parsedSkills: List<String> = gson.fromJson(newSkillsJson, listTypeSkill) ?: emptyList()
+                        val listTypeProj = object : TypeToken<List<AiProject>>() {}.type
+                        val listTypeExp = object : TypeToken<List<AiExperience>>() {}.type
+                        val listTypeSkill = object : TypeToken<List<String>>() {}.type
 
-                    val mergedProjects = (existingProjects + parsedProjects).groupBy { it.name.lowercase().trim() }.map { it.value.last() }
-                    val mergedExp = (existingExp + parsedExp).groupBy { it.company.lowercase().trim() }.map { it.value.last() }
-                    val mergedSkills = (existingSkills + parsedSkills).map { it.trim() }.distinctBy { it.lowercase() }
+                        val existingProjectsRaw: List<AiProject>? = try { gson.fromJson(if (userProfile.savedProjectsJson.isBlank()) "[]" else userProfile.savedProjectsJson, listTypeProj) } catch (e: Exception) { emptyList() }
+                        val existingProjects = existingProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "", it.startYear ?: "", it.endMonth ?: "", it.endYear ?: "", it.bullets ?: "") } ?: emptyList()
 
-                    val finalMessages = messages.dropLast(1) + ChatMessage(aiReply, false)
-                    messages = finalMessages
+                        val existingExpRaw: List<AiExperience>? = try { gson.fromJson(if (userProfile.savedExperienceJson.isBlank()) "[]" else userProfile.savedExperienceJson, listTypeExp) } catch (e: Exception) { emptyList() }
+                        val existingExp = existingExpRaw?.filterNotNull()?.map { AiExperience(it.company ?: "Unknown Company", it.role ?: "Unknown Role", it.startMonth ?: "", it.startYear ?: "", it.endMonth ?: "", it.endYear ?: "", it.bullets ?: "") } ?: emptyList()
 
-                    userProfileStore.saveUserProfile(
-                        userProfile.copy(
-                            savedProjectsJson = gson.toJson(mergedProjects),
-                            savedExperienceJson = gson.toJson(mergedExp),
-                            savedSkillsJson = gson.toJson(mergedSkills),
-                            chatHistoryJson = gson.toJson(finalMessages)
+                        val existingSkillsRaw: List<String>? = try { gson.fromJson(if (userProfile.savedSkillsJson.isBlank()) "[]" else userProfile.savedSkillsJson, listTypeSkill) } catch (e: Exception) { emptyList() }
+                        val existingSkills = existingSkillsRaw?.filterNotNull() ?: emptyList()
+
+                        val parsedProjectsRaw: List<AiProject>? = try { gson.fromJson(newProjectsJson, listTypeProj) } catch (e: Exception) { emptyList() }
+                        val parsedProjects = parsedProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "", it.startYear ?: "", it.endMonth ?: "", it.endYear ?: "", it.bullets ?: "") } ?: emptyList()
+
+                        val parsedExpRaw: List<AiExperience>? = try { gson.fromJson(newExperienceJson, listTypeExp) } catch (e: Exception) { emptyList() }
+                        val parsedExp = parsedExpRaw?.filterNotNull()?.map { AiExperience(it.company ?: "Unknown Company", it.role ?: "Unknown Role", it.startMonth ?: "", it.startYear ?: "", it.endMonth ?: "", it.endYear ?: "", it.bullets ?: "") } ?: emptyList()
+
+                        val parsedSkillsRaw: List<String>? = try { gson.fromJson(newSkillsJson, listTypeSkill) } catch (e: Exception) { emptyList() }
+                        val parsedSkills = parsedSkillsRaw?.filterNotNull() ?: emptyList()
+
+                        val mergedProjects = (existingProjects + parsedProjects).groupBy { it.name.lowercase().trim() }.map { it.value.last() }
+                        val mergedExp = (existingExp + parsedExp).groupBy { it.company.lowercase().trim() }.map { it.value.last() }
+                        val mergedSkills = (existingSkills + parsedSkills).map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }
+
+                        val finalMessages = messages.dropLast(1) + ChatMessage(aiReply, false)
+                        messages = finalMessages
+
+                        userProfileStore.saveUserProfile(
+                            userProfile.copy(
+                                firstName = newFirstName,
+                                lastName = newLastName,
+                                targetRole = newTargetRole,
+                                summary = newSummary,
+                                savedProjectsJson = gson.toJson(mergedProjects),
+                                savedExperienceJson = gson.toJson(mergedExp),
+                                savedSkillsJson = gson.toJson(mergedSkills),
+                                chatHistoryJson = gson.toJson(finalMessages)
+                            )
                         )
-                    )
+                    } catch (e: Exception) {
+                        messages = messages.dropLast(1) + ChatMessage("Data parsing error: Could not read AI response.", false)
+                    }
                 } else {
-                    messages = messages.dropLast(1) + ChatMessage("Backend Error: Couldn't parse data.", false)
+                    messages = messages.dropLast(1) + ChatMessage("Backend Error: Server returned a failure status.", false)
                 }
             } catch (e: Exception) {
                 messages = messages.dropLast(1) + ChatMessage("Connection Error: Request timed out. Ensure your Render server is awake!", false)
@@ -174,7 +209,12 @@ fun AiAssistantScreen(
         modifier = Modifier.statusBarsPadding(),
         topBar = {
             TopAppBar(
-                title = { Text("AI Assistant") },
+                title = {
+                    Column {
+                        Text("AI Assistant")
+                        if (!hasInternet) Text("Offline Mode", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
                     TextButton(onClick = {
@@ -203,19 +243,25 @@ fun AiAssistantScreen(
                         value = currentInput,
                         onValueChange = { currentInput = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text(if (isListening) "Listening..." else "Type or tap microphone...") },
+                        enabled = hasInternet,
+                        placeholder = { Text(if (isListening) "Listening..." else if(!hasInternet) "Waiting for connection..." else "Type or tap microphone...") },
                         shape = RoundedCornerShape(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     FloatingActionButton(
                         onClick = {
-                            if (currentInput.isNotBlank()) sendMessage()
-                            else permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                            hasInternet = isOnline(context)
+                            if (hasInternet) {
+                                if (currentInput.isNotBlank()) sendMessage()
+                                else permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                            } else {
+                                Toast.makeText(context, "Offline - Please connect to Wi-Fi", Toast.LENGTH_SHORT).show()
+                            }
                         },
-                        containerColor = MaterialTheme.colorScheme.primary,
+                        containerColor = if(hasInternet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                         shape = RoundedCornerShape(24.dp)
                     ) {
-                        Icon(if (currentInput.isBlank()) Icons.Filled.Mic else Icons.Filled.Send, contentDescription = "Send")
+                        Icon(if (!hasInternet) Icons.Filled.MicOff else if (currentInput.isBlank()) Icons.Filled.Mic else Icons.Filled.Send, contentDescription = "Send")
                     }
                 }
             }
@@ -231,7 +277,13 @@ fun ChatBubble(msg: ChatMessage) {
 
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = alignment) {
         Surface(color = bgColor, shape = RoundedCornerShape(16.dp), modifier = Modifier.widthIn(max = 280.dp)) {
-            Text(text = msg.text, modifier = Modifier.padding(16.dp), color = textColor)
+            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (msg.isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = textColor, strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(text = msg.text, color = textColor)
+            }
         }
     }
 }

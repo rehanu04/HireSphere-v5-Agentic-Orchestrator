@@ -50,42 +50,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -102,7 +74,9 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody
 import retrofit2.Retrofit
 import retrofit2.http.Body
@@ -115,7 +89,7 @@ import java.io.FileOutputStream
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.min
-import java.util.concurrent.TimeUnit // ✅ Added for Retrofit Timeouts
+import java.util.concurrent.TimeUnit
 
 // ---------------------------
 // API & Models
@@ -126,7 +100,6 @@ private interface ResumeApi {
 }
 
 private fun createRetrofit(baseUrl: String): ResumeApi {
-    // ✅ FIX 2: Added 120-second timeout for PDF generation
     val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
@@ -193,7 +166,7 @@ fun CreateResumeScreen(
     onToggleTheme: (Boolean) -> Unit,
     onBack: () -> Unit,
     onGoAiAssistant: () -> Unit,
-    onGoProfile: () -> Unit, // ✅ Profile Button Enabled
+    onGoProfile: () -> Unit,
     apiBaseUrl: String,
     apiAppKey: String,
     userProfileStore: com.rehanu04.resumematchv2.data.UserProfileStore
@@ -213,14 +186,39 @@ fun CreateResumeScreen(
         lastImeVisible = imeVisible
     }
 
+    var showCoverLetterDialog by remember { mutableStateOf(false) }
+    var coverLetterText by remember { mutableStateOf("") }
+    var isGeneratingCoverLetter by remember { mutableStateOf(false) }
+
     var draft by remember { mutableStateOf(Draft()) }
     val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = com.rehanu04.resumematchv2.data.UserProfile())
     val gson = remember { Gson() }
 
+    // ✅ CRASH FIX: Bulletproof Vault Parsers
     val listTypeProj = object : TypeToken<List<ProjectEntry>>() {}.type
     val listTypeExp = object : TypeToken<List<ExperienceEntry>>() {}.type
-    val vaultProjects: List<ProjectEntry> = remember(userProfile.savedProjectsJson) { gson.fromJson(userProfile.savedProjectsJson, listTypeProj) ?: emptyList() }
-    val vaultExperience: List<ExperienceEntry> = remember(userProfile.savedExperienceJson) { gson.fromJson(userProfile.savedExperienceJson, listTypeExp) ?: emptyList() }
+    val listTypeSkill = object : TypeToken<List<String>>() {}.type
+
+    val vaultProjects: List<ProjectEntry> = remember(userProfile.savedProjectsJson) {
+        try {
+            val parsed: List<ProjectEntry>? = gson.fromJson(userProfile.savedProjectsJson, listTypeProj)
+            parsed?.filterNotNull()?.map { ProjectEntry(name = it.name ?: "", startMonth = it.startMonth ?: "", startYear = it.startYear ?: "", endMonth = it.endMonth ?: "", endYear = it.endYear ?: "", bullets = it.bullets ?: "") } ?: emptyList()
+        } catch(e:Exception) { emptyList() }
+    }
+
+    val vaultExperience: List<ExperienceEntry> = remember(userProfile.savedExperienceJson) {
+        try {
+            val parsed: List<ExperienceEntry>? = gson.fromJson(userProfile.savedExperienceJson, listTypeExp)
+            parsed?.filterNotNull()?.map { ExperienceEntry(company = it.company ?: "", role = it.role ?: "", startMonth = it.startMonth ?: "", startYear = it.startYear ?: "", endMonth = it.endMonth ?: "", endYear = it.endYear ?: "", bullets = it.bullets ?: "") } ?: emptyList()
+        } catch(e:Exception) { emptyList() }
+    }
+
+    val vaultSkills: List<String> = remember(userProfile.savedSkillsJson) {
+        try {
+            val parsed: List<String>? = gson.fromJson(userProfile.savedSkillsJson, listTypeSkill)
+            parsed?.filterNotNull()?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+        } catch(e: Exception) { emptyList() }
+    }
 
     LaunchedEffect(userProfile) {
         if (draft.firstName.isBlank() && userProfile.isComplete) {
@@ -274,9 +272,7 @@ fun CreateResumeScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Create Resume", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
-                },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
                     IconButton(onClick = onGoProfile) { Icon(Icons.Filled.Person, contentDescription = "Profile") }
                     IconButton(onClick = { onToggleTheme(!isDark) }) { Icon(Icons.Filled.Brightness6, contentDescription = "Toggle Theme") }
@@ -310,13 +306,39 @@ fun CreateResumeScreen(
             SectionCard("Links", "LinkedIn / GitHub / Portfolio", if (hasAnyLink(draft.links)) "Ready" else "Optional") { openPanel(EditPanel.LINKS) }
             SectionCard("Template", TEMPLATE_OPTIONS.firstOrNull { it.id == draft.templateId }?.title ?: "ATS Professional", "Ready") { openPanel(EditPanel.TEMPLATE) }
             Spacer(Modifier.height(14.dp))
+
             Card(modifier = Modifier.fillMaxWidth().animateContentSize(), colors = CardDefaults.cardColors(containerColor = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Generate PDF", style = MaterialTheme.typography.titleMedium); Spacer(Modifier.height(6.dp))
-                    Text(text = "Required: JD, About info, Skills, Content (Exp/Projects), Education.", style = MaterialTheme.typography.bodySmall)
+                    Text("Generate Output", style = MaterialTheme.typography.titleMedium); Spacer(Modifier.height(6.dp))
+                    Text(text = "Required: JD, About info, Skills, Content, Education.", style = MaterialTheme.typography.bodySmall)
                     if (errorText != null) { Spacer(Modifier.height(8.dp)); Text(text = errorText!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { submitAttempted = true; val missing = firstMissingPanel(draft); if (missing != null) openPanel(missing) else scope.launch { generatePdf() } }, enabled = !loading) { Text(if (loading) "Generating..." else "Generate PDF") }
+                    Spacer(Modifier.height(16.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            onClick = { submitAttempted = true; val missing = firstMissingPanel(draft); if (missing != null) openPanel(missing) else scope.launch { generatePdf() } },
+                            enabled = !loading
+                        ) { Text(if (loading) "Generating..." else "Create PDF") }
+
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            enabled = jobReady && !isGeneratingCoverLetter,
+                            onClick = {
+                                isGeneratingCoverLetter = true; showCoverLetterDialog = true; coverLetterText = ""
+                                scope.launch {
+                                    try {
+                                        val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).build()
+                                        val vaultDataStr = "Name: ${draft.firstName} ${draft.lastName}\nSkills: ${flattenSkills(draft).joinToString(", ")}\nExp: ${buildExperienceText(draft)}\nProjects: ${buildProjectsText(draft)}"
+                                        val jsonBody = org.json.JSONObject().apply { put("job_description", draft.jdText); put("vault_data", vaultDataStr) }.toString()
+                                        val req = okhttp3.Request.Builder().url(apiBaseUrl.trimEnd('/') + "/v1/ai/cover-letter").post(jsonBody.toRequestBody("application/json".toMediaType())).build()
+                                        val responseStr = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { client.newCall(req).execute().use { if (it.isSuccessful) it.body?.string() else null } }
+                                        if (responseStr != null) { coverLetterText = org.json.JSONObject(responseStr).optString("cover_letter", "Error generating text.") } else { coverLetterText = "Failed to connect to backend." }
+                                    } catch (e: Exception) { coverLetterText = "Timeout: Server is starting up. Try again." } finally { isGeneratingCoverLetter = false }
+                                }
+                            }
+                        ) { Text(if (isGeneratingCoverLetter) "Writing..." else "Cover Letter") }
+                    }
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -328,7 +350,7 @@ fun CreateResumeScreen(
             when (panel!!) {
                 EditPanel.JOB -> JobPanel(draft, submitAttempted, { draft = it }, { closePanel() })
                 EditPanel.ABOUT -> AboutPanel(draft, submitAttempted, { draft = it }, { closePanel() })
-                EditPanel.SKILLS -> SkillsPanel(draft, submitAttempted, { draft = it }, { closePanel() })
+                EditPanel.SKILLS -> SkillsPanel(draft, vaultSkills, submitAttempted, { draft = it }, { closePanel() })
                 EditPanel.EXPERIENCE -> ExperiencePanel(draft, vaultExperience, submitAttempted, { draft = it }, { closePanel() })
                 EditPanel.PROJECTS -> ProjectsPanel(draft, vaultProjects, submitAttempted, { draft = it }, { closePanel() })
                 EditPanel.EDUCATION -> EducationPanel(draft, submitAttempted, { draft = it }, { closePanel() })
@@ -338,6 +360,23 @@ fun CreateResumeScreen(
                 EditPanel.TEMPLATE -> TemplatePanel(draft, { draft = it }, { closePanel() })
             }
         }
+    }
+
+    if (showCoverLetterDialog) {
+        AlertDialog(
+            onDismissRequest = { showCoverLetterDialog = false },
+            title = { Text("AI Cover Letter") },
+            text = {
+                if (isGeneratingCoverLetter) {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(); Spacer(Modifier.height(16.dp)); Text("Drafting tailored letter...")
+                    }
+                } else {
+                    OutlinedTextField(value = coverLetterText, onValueChange = { coverLetterText = it }, modifier = Modifier.fillMaxWidth().height(400.dp), textStyle = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showCoverLetterDialog = false }) { Text("Close") } }
+        )
     }
 }
 
@@ -372,18 +411,25 @@ private fun JobPanel(draft: Draft, submitAttempted: Boolean, onDraft: (Draft) ->
 private fun AboutPanel(draft: Draft, submitAttempted: Boolean, onDraft: (Draft) -> Unit, onDone: () -> Unit) {
     PanelHeader("About", onDone)
     var roleQuery by remember { mutableStateOf(draft.targetRole) }; var roleFocused by remember { mutableStateOf(false) }
-    val firstErr = submitAttempted && draft.firstName.trim().isEmpty(); val lastErr = submitAttempted && draft.lastName.trim().isEmpty()
+
+    // ✅ FIX: Added Validation highlights for Role and Location
+    val firstErr = submitAttempted && draft.firstName.trim().isEmpty()
+    val lastErr = submitAttempted && draft.lastName.trim().isEmpty()
+    val roleErr = submitAttempted && draft.targetRole.trim().isEmpty()
+    val locErr = submitAttempted && draft.location.trim().isEmpty()
+
     val emailInvalid = submitAttempted && draft.email.isNotBlank() && !Patterns.EMAIL_ADDRESS.matcher(draft.email).matches()
     val phoneInvalid = submitAttempted && draft.phone.isNotBlank() && !Patterns.PHONE.matcher(draft.phone).matches()
+
     Column(modifier = Modifier.fillMaxWidth().imePadding().padding(16.dp).verticalScroll(rememberScrollState())) {
         OutlinedTextField(value = draft.firstName, onValueChange = { onDraft(draft.copy(firstName = it)) }, label = { Text("First name *") }, isError = firstErr, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp)); OutlinedTextField(value = draft.lastName, onValueChange = { onDraft(draft.copy(lastName = it)) }, label = { Text("Last name *") }, isError = lastErr, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(10.dp)); OutlinedTextField(value = roleQuery, onValueChange = { roleQuery = it; onDraft(draft.copy(targetRole = it)) }, label = { Text("Target role *") }, modifier = Modifier.fillMaxWidth().onFocusChanged { roleFocused = it.isFocused })
+        Spacer(Modifier.height(10.dp)); OutlinedTextField(value = roleQuery, onValueChange = { roleQuery = it; onDraft(draft.copy(targetRole = it)) }, label = { Text("Target role *") }, isError = roleErr, modifier = Modifier.fillMaxWidth().onFocusChanged { roleFocused = it.isFocused })
         if (roleFocused && roleQuery.isNotEmpty()) {
             val matches = ROLE_SUGGESTIONS.filter { it.contains(roleQuery, true) }.take(5)
             if (matches.isNotEmpty()) SuggestionsCard("Role suggestions", matches, "No matches") { picked -> roleQuery = picked; onDraft(draft.copy(targetRole = picked)) }
         }
-        Spacer(Modifier.height(10.dp)); OutlinedTextField(value = draft.location, onValueChange = { onDraft(draft.copy(location = it)) }, label = { Text("Location *") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp)); OutlinedTextField(value = draft.location, onValueChange = { onDraft(draft.copy(location = it)) }, label = { Text("Location *") }, isError = locErr, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp)); OutlinedTextField(value = draft.email, onValueChange = { onDraft(draft.copy(email = it)) }, label = { Text("Email") }, isError = emailInvalid, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp)); OutlinedTextField(value = draft.phone, onValueChange = { onDraft(draft.copy(phone = it)) }, label = { Text("Phone") }, isError = phoneInvalid, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp)); OutlinedTextField(value = draft.summary, onValueChange = { onDraft(draft.copy(summary = it)) }, label = { Text("Summary") }, minLines = 3, modifier = Modifier.fillMaxWidth())
@@ -401,13 +447,56 @@ private fun AboutPanel(draft: Draft, submitAttempted: Boolean, onDraft: (Draft) 
 }
 
 @Composable
-private fun SkillsPanel(draft: Draft, submitAttempted: Boolean, onDraft: (Draft) -> Unit, onDone: () -> Unit) {
+private fun SkillsPanel(draft: Draft, vaultSkills: List<String>, submitAttempted: Boolean, onDraft: (Draft) -> Unit, onDone: () -> Unit) {
     PanelHeader("Skills", onDone)
+    val ctx = LocalContext.current
     val cats = listOf("Languages" to draft.skillsLanguages, "Frameworks" to draft.skillsFrameworks, "Databases" to draft.skillsDatabases, "Cloud/DevOps" to draft.skillsCloud, "ML/AI" to draft.skillsAI, "Tools" to draft.skillsTools, "Other" to draft.skillsOther)
     var sel by remember { mutableIntStateOf(0) }; var query by remember { mutableStateOf("") }
     val currentLabel = cats[sel].first; val currentList = cats[sel].second
     fun addS(v: String) { if (v.isNotBlank()) onDraft(updateSkillCategory(draft, currentLabel, (currentList + v.trim()).distinctBy { it.lowercase() })); query = "" }
+
     Column(modifier = Modifier.fillMaxWidth().imePadding().padding(16.dp).verticalScroll(rememberScrollState())) {
+
+        // ✨ AUTO MATCH SKILLS LOGIC FIX
+        if (vaultSkills.isNotEmpty() && draft.jdText.isNotBlank()) {
+            OutlinedButton(
+                onClick = {
+                    val jdLow = draft.jdText.lowercase()
+                    val matched = vaultSkills.filter { jdLow.contains(it.lowercase()) }
+
+                    var newLangs = draft.skillsLanguages
+                    var newFws = draft.skillsFrameworks
+                    var newDbs = draft.skillsDatabases
+                    var newCloud = draft.skillsCloud
+                    var newAi = draft.skillsAI
+                    var newTools = draft.skillsTools
+                    var newOther = draft.skillsOther
+
+                    matched.forEach { s ->
+                        when {
+                            LANGS_SUGGESTIONS.any { it.equals(s, true) } -> newLangs = (newLangs + listOf(s)).distinct()
+                            FRAMEWORKS_SUGGESTIONS.any { it.equals(s, true) } -> newFws = (newFws + listOf(s)).distinct()
+                            DATABASES_SUGGESTIONS.any { it.equals(s, true) } -> newDbs = (newDbs + listOf(s)).distinct()
+                            CLOUD_SUGGESTIONS.any { it.equals(s, true) } -> newCloud = (newCloud + listOf(s)).distinct()
+                            AI_SUGGESTIONS.any { it.equals(s, true) } -> newAi = (newAi + listOf(s)).distinct()
+                            TOOLS_SUGGESTIONS.any { it.equals(s, true) } -> newTools = (newTools + listOf(s)).distinct()
+                            else -> newOther = (newOther + listOf(s)).distinct()
+                        }
+                    }
+                    onDraft(draft.copy(
+                        skillsLanguages = newLangs, skillsFrameworks = newFws, skillsDatabases = newDbs,
+                        skillsCloud = newCloud, skillsAI = newAi, skillsTools = newTools, skillsOther = newOther
+                    ))
+                    Toast.makeText(ctx, "✨ Auto-Matched ${matched.size} skills from Vault!", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            ) {
+                Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("✨ Auto-Match Skills from JD")
+            }
+        }
+
         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             cats.forEachIndexed { i, p -> AssistPill(p.first, i == sel) { sel = i; query = "" } }
         }
@@ -425,7 +514,31 @@ private fun SkillsPanel(draft: Draft, submitAttempted: Boolean, onDraft: (Draft)
 @Composable
 private fun ExperiencePanel(draft: Draft, vaultExperience: List<ExperienceEntry>, submitAttempted: Boolean, onDraft: (Draft) -> Unit, onDone: () -> Unit) {
     PanelHeader("Experience", onDone)
+    val ctx = LocalContext.current
+
     Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(16.dp)) {
+
+        // ✨ NEW: AUTO MATCH EXPERIENCE LOGIC
+        if (vaultExperience.isNotEmpty() && draft.jdText.isNotBlank()) {
+            OutlinedButton(
+                onClick = {
+                    val jdWords = draft.jdText.lowercase().split(Regex("\\W+")).filter { it.length > 2 }.toSet()
+                    val scored = vaultExperience.map { exp ->
+                        val expWords = (exp.company + " " + exp.role + " " + exp.bullets).lowercase().split(Regex("\\W+"))
+                        exp to expWords.count { it in jdWords }
+                    }
+                    val bestMatches = scored.sortedByDescending { it.second }.take(3).map { it.first }
+                    onDraft(draft.copy(experience = (draft.experience + bestMatches).distinct()))
+                    Toast.makeText(ctx, "✨ Added Top ${bestMatches.size} Matching Roles!", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            ) {
+                Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("✨ Auto-Match Top Experience from JD")
+            }
+        }
+
         if (vaultExperience.isNotEmpty()) {
             VaultSelector(
                 title = "Experience",
@@ -446,7 +559,31 @@ private fun ExperiencePanel(draft: Draft, vaultExperience: List<ExperienceEntry>
 @Composable
 private fun ProjectsPanel(draft: Draft, vaultProjects: List<ProjectEntry>, submitAttempted: Boolean, onDraft: (Draft) -> Unit, onDone: () -> Unit) {
     PanelHeader("Projects", onDone)
+    val ctx = LocalContext.current
+
     Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.88f).padding(16.dp)) {
+
+        // ✨ NEW: AUTO MATCH PROJECTS LOGIC
+        if (vaultProjects.isNotEmpty() && draft.jdText.isNotBlank()) {
+            OutlinedButton(
+                onClick = {
+                    val jdWords = draft.jdText.lowercase().split(Regex("\\W+")).filter { it.length > 2 }.toSet()
+                    val scored = vaultProjects.map { proj ->
+                        val projWords = (proj.name + " " + proj.bullets).lowercase().split(Regex("\\W+"))
+                        proj to projWords.count { it in jdWords }
+                    }
+                    val bestMatches = scored.sortedByDescending { it.second }.take(3).map { it.first }
+                    onDraft(draft.copy(projects = (draft.projects + bestMatches).distinct()))
+                    Toast.makeText(ctx, "✨ Added Top ${bestMatches.size} Matching Projects!", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            ) {
+                Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("✨ Auto-Match Top Projects from JD")
+            }
+        }
+
         if (vaultProjects.isNotEmpty()) {
             VaultSelector(
                 title = "Projects",

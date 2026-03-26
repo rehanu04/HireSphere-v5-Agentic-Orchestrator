@@ -4,6 +4,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:usesCleartextTraffic="true"
@@ -27,7 +28,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Required for opening/sharing generated PDFs saved in cacheDir -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

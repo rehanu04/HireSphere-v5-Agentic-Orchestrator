@@ -44,6 +44,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 private const val MAX_MATCHED_CHIPS = 50
@@ -211,7 +212,6 @@ private fun resolveJobDescriptionText(client: OkHttpClient, input: String): Stri
 
     val url = normalizeUrl(trimmed)
 
-    // ✅ NEW: Explicitly block LinkedIn URLs since they block AI scraping
     if (url.contains("linkedin.com", ignoreCase = true)) {
         throw IllegalStateException("Cannot access LinkedIn securely. Please copy and paste the job description text directly.")
     }
@@ -240,21 +240,16 @@ private fun resolveJobDescriptionText(client: OkHttpClient, input: String): Stri
 }
 
 private fun isLikelyJobDescription(text: String): Boolean {
-    if (text.trim().length < 50) return true // Let short manual inputs pass
+    if (text.trim().length < 50) return true
     val t = text.lowercase()
 
-    // Check for build error junk
     val errorWords = listOf("exception", "build failed", "stacktrace", "compilation error", "gradlew", "execution failed")
     val errorHits = errorWords.count { t.contains(it) }
 
-    // Check for real JD words
     val jdWords = listOf("experience", "requirement", "responsibility", "qualification", "skill", "apply", "role", "job", "salary", "team")
     val jdHits = jdWords.count { t.contains(it) }
 
-    // If it looks heavily like an error log and not a JD
     if (errorHits > 0 && jdHits < 2) return false
-
-    // If it's a long block of text but has zero JD keywords
     if (t.length > 200 && jdHits == 0) return false
 
     return true
@@ -417,13 +412,12 @@ fun AnalyzeScreen(
     onGoProfile: () -> Unit,
     apiBaseUrl: String,
     apiAppKey: String,
-    userProfileStore: com.rehanu04.resumematchv2.data.UserProfileStore // ✅ Added DataStore Parameter
+    userProfileStore: com.rehanu04.resumematchv2.data.UserProfileStore
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val scroll = rememberScrollState()
 
-    // ✅ State flow for user profile
     val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = com.rehanu04.resumematchv2.data.UserProfile())
 
     var jdInput by rememberSaveable { mutableStateOf("") }
@@ -446,7 +440,13 @@ fun AnalyzeScreen(
     val jdText = jdInput.trim()
 
     fun buttonLabel(): String = when { jdText.isBlank() -> "Enter JD to analyze"; selectedPdfUri == null -> "Analyze Job"; else -> "Analyze Match" }
-    fun buttonEnabled(): Boolean = when { loading -> false; jdText.isBlank() -> false; selectedPdfUri == null -> true; else -> apiBaseUrl.isNotBlank() && apiAppKey.isNotBlank() }
+
+    fun buttonEnabled(): Boolean = when {
+        loading -> false
+        jdText.isBlank() -> false
+        selectedPdfUri == null -> true
+        else -> apiBaseUrl.isNotBlank()
+    }
 
     fun runAnalyze() {
         errorText = null; rawJson = null; jobAnalyzed = false
@@ -455,7 +455,13 @@ fun AnalyzeScreen(
 
         scope.launch {
             try {
-                val client = OkHttpClient()
+                // ✨ FIX: Increased timeouts to 60 seconds to prevent "timeout" error
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(60, TimeUnit.SECONDS)
+                    .writeTimeout(60, TimeUnit.SECONDS)
+                    .readTimeout(60, TimeUnit.SECONDS)
+                    .build()
+
                 val effectiveJd = withContext(Dispatchers.IO) { resolveJobDescriptionText(client, jdText) }
                 lastEffectiveJdText = effectiveJd
 
@@ -467,12 +473,26 @@ fun AnalyzeScreen(
 
                 lastEffectiveJdText = effectiveJd
 
-                val uri = selectedPdfUri ?: return@launch
-                if (apiBaseUrl.isBlank() || apiAppKey.isBlank()) { errorText = "Missing API base URL or app key."; return@launch }
+                val uri = selectedPdfUri
+                if (uri == null) {
+                    val jdKeys = extractSkillsGlobal(effectiveJd).asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>())
+                    jobSkillKeysAfterClick = jdKeys.toList()
+                    jobSkillsAfterClick = jdKeys.toList().sortedWith(compareBy({ skillPriority(it) }, { it })).map { prettySkill(it) }.distinctBy { it.lowercase() }.take(MAX_MATCHED_CHIPS)
+                    jobAnalyzed = true
+                    loading = false
+                    return@launch
+                }
+
+                if (apiBaseUrl.isBlank()) { errorText = "Missing API base URL."; loading = false; return@launch }
 
                 val tmp = copyContentUriToTempFile(ctx, uri)
                 val body = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("resume", tmp.name, tmp.asRequestBody("application/pdf".toMediaType())).addFormDataPart("jd_text", effectiveJd).addFormDataPart("debug", "true").build()
-                val req = Request.Builder().url(apiBaseUrl.trimEnd('/') + "/v1/analyze/pdf").post(body).addHeader("x-app-key", apiAppKey).build()
+
+                val reqBuilder = Request.Builder().url(apiBaseUrl.trimEnd('/') + "/v1/analyze/pdf").post(body)
+                if (apiAppKey.isNotBlank()) {
+                    reqBuilder.addHeader("x-app-key", apiAppKey)
+                }
+                val req = reqBuilder.build()
 
                 val resp = withContext(Dispatchers.IO) { client.newCall(req).execute() }
                 val txt = resp.body?.string()
@@ -498,7 +518,6 @@ fun AnalyzeScreen(
             modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 18.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // ✅ THE NUDGE BANNER
             if (!userProfile.isComplete) {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth().clickable { onGoProfile() },
