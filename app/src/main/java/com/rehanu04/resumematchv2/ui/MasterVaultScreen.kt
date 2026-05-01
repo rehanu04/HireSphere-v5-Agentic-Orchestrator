@@ -52,10 +52,27 @@ import java.util.concurrent.TimeUnit
 data class VaultProject(val name: String = "", val startMonth: String = "", val startYear: String = "", val endMonth: String = "", val endYear: String = "", val bullets: String = "")
 data class VaultExperience(val company: String = "", val role: String = "", val startMonth: String = "", val startYear: String = "", val endMonth: String = "", val endYear: String = "", val bullets: String = "")
 
+// ✨ Dropdown Data
 private val MONTH_OPTIONS = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
 private val YEAR_OPTIONS = (Calendar.getInstance().get(Calendar.YEAR) + 5 downTo 1980).map { it.toString() }
 
-// ✨ NEW: Reusable Expandable Accordion Component
+@Composable
+fun SelectionField(label: String, value: String, options: List<String>, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = value, onValueChange = {}, readOnly = true, label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth(), singleLine = true
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { opt ->
+                DropdownMenuItem(text = { Text(opt) }, onClick = { onValueChange(opt); expanded = false })
+            }
+        }
+    }
+}
+
 @Composable
 fun ExpandableVaultSection(
     title: String,
@@ -85,7 +102,7 @@ fun ExpandableVaultSection(
                 )
             }
             if (expanded) {
-                Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 Box(modifier = Modifier.padding(16.dp)) {
                     content()
                 }
@@ -98,7 +115,7 @@ fun ExpandableVaultSection(
 fun MasterVaultScreen(
     onBack: () -> Unit,
     onGoToInterview: () -> Unit = {},
-    onGoToLiveVoice: () -> Unit = {}, // ✅ NEW
+    onGoToLiveVoice: () -> Unit = {},
     userProfileStore: UserProfileStore,
     apiBaseUrl: String = "https://resumematch-ai-backend.onrender.com"
 ) {
@@ -136,7 +153,6 @@ fun MasterVaultScreen(
     var tempProject by remember { mutableStateOf(VaultProject()) }
     var tempExperience by remember { mutableStateOf(VaultExperience()) }
 
-    // ✨ Accordion Expansion States (Skills open by default, others closed to save space)
     var expandedSkills by remember { mutableStateOf(true) }
     var expandedProjects by remember { mutableStateOf(false) }
     var expandedExperience by remember { mutableStateOf(false) }
@@ -180,7 +196,6 @@ fun MasterVaultScreen(
                 title = { Text("My Master Vault", fontWeight = FontWeight.Bold) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
-                    // CLOUD DOWNLOAD BUTTON
                     IconButton(onClick = {
                         if (!isOnline(context)) { scope.launch { snackbarHostState.showSnackbar("You are offline!") }; return@IconButton }
                         isSyncing = true
@@ -197,7 +212,6 @@ fun MasterVaultScreen(
                         else Icon(Icons.Filled.CloudDownload, "Restore Backup", tint = MaterialTheme.colorScheme.primary)
                     }
 
-                    // CLOUD UPLOAD BUTTON
                     IconButton(onClick = {
                         if (!isOnline(context)) { scope.launch { snackbarHostState.showSnackbar("You are offline!") }; return@IconButton }
                         isSyncing = true
@@ -211,7 +225,6 @@ fun MasterVaultScreen(
                         else Icon(Icons.Filled.CloudUpload, "Cloud Backup", tint = MaterialTheme.colorScheme.primary)
                     }
 
-                    // AI INSIGHTS BUTTON
                     if (!isVaultEmpty) {
                         IconButton(onClick = { analyzeVault() }) { Icon(Icons.Filled.AutoAwesome, "Analyze Vault", tint = MaterialTheme.colorScheme.primary) }
                     }
@@ -236,9 +249,8 @@ fun MasterVaultScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 40.dp) // Padding for scroll clearance
+                contentPadding = PaddingValues(bottom = 40.dp)
             ) {
-                // ✅ Quick Insights Banner
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth().clickable { analyzeVault() },
@@ -255,12 +267,10 @@ fun MasterVaultScreen(
                         }
                     }
                 }
-                // 🎙️ Mock Interview Banner
+
                 item {
                     Card(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            onGoToInterview() // ✅ FIXED: Now actually navigates!
-                        },
+                        modifier = Modifier.fillMaxWidth().clickable { onGoToInterview() },
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                         shape = RoundedCornerShape(16.dp)
                     ) {
@@ -275,7 +285,6 @@ fun MasterVaultScreen(
                     }
                 }
 
-                // 🎧 Live Voice Coach Banner
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth().clickable { onGoToLiveVoice() },
@@ -293,15 +302,10 @@ fun MasterVaultScreen(
                     }
                 }
 
-                // --- 🌟 SKILLS SECTION (Collapsible) ---
                 if (vaultSkills.isNotEmpty()) {
                     item {
                         ExpandableVaultSection(
-                            title = "Skills",
-                            icon = Icons.Filled.Star,
-                            count = vaultSkills.size,
-                            expanded = expandedSkills,
-                            onToggle = { expandedSkills = !expandedSkills }
+                            title = "Skills", icon = Icons.Filled.Star, count = vaultSkills.size, expanded = expandedSkills, onToggle = { expandedSkills = !expandedSkills }
                         ) {
                             val chunkedSkills = vaultSkills.chunked(2)
                             Column {
@@ -309,14 +313,9 @@ fun MasterVaultScreen(
                                     Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         rowSkills.forEach { skill ->
                                             Surface(
-                                                shape = RoundedCornerShape(16.dp),
-                                                color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                modifier = Modifier.weight(1f)
+                                                shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.weight(1f)
                                             ) {
-                                                Row(
-                                                    modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
+                                                Row(modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                                     Text(skill, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                     Icon(
                                                         Icons.Filled.Close, "Remove",
@@ -341,15 +340,10 @@ fun MasterVaultScreen(
                     }
                 }
 
-                // --- 🚀 PROJECTS SECTION (Collapsible) ---
                 if (vaultProjects.isNotEmpty()) {
                     item {
                         ExpandableVaultSection(
-                            title = "Projects",
-                            icon = Icons.Filled.Star,
-                            count = vaultProjects.size,
-                            expanded = expandedProjects,
-                            onToggle = { expandedProjects = !expandedProjects }
+                            title = "Projects", icon = Icons.Filled.Star, count = vaultProjects.size, expanded = expandedProjects, onToggle = { expandedProjects = !expandedProjects }
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 vaultProjects.forEachIndexed { index, proj ->
@@ -379,15 +373,10 @@ fun MasterVaultScreen(
                     }
                 }
 
-                // --- 💼 EXPERIENCE SECTION (Collapsible) ---
                 if (vaultExperience.isNotEmpty()) {
                     item {
                         ExpandableVaultSection(
-                            title = "Experience",
-                            icon = Icons.Filled.Person,
-                            count = vaultExperience.size,
-                            expanded = expandedExperience,
-                            onToggle = { expandedExperience = !expandedExperience }
+                            title = "Experience", icon = Icons.Filled.Person, count = vaultExperience.size, expanded = expandedExperience, onToggle = { expandedExperience = !expandedExperience }
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 vaultExperience.forEachIndexed { index, exp ->
@@ -418,14 +407,9 @@ fun MasterVaultScreen(
                     }
                 }
 
-                // ✅ Education & Achievement Clarification Hint
                 item {
                     Spacer(Modifier.height(8.dp))
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)), shape = RoundedCornerShape(16.dp)) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.Info, "Info", tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
@@ -440,7 +424,81 @@ fun MasterVaultScreen(
         }
     }
 
-    // ✅ Analytics Dialog UI
+    // ✨ FIXED: Native Dropdown logic added to Edit Project Dialog
+    if (editingProjectIndex >= 0) {
+        val endMonthOptions = listOf("Present") + MONTH_OPTIONS
+        val endYearOptions = listOf("Present") + YEAR_OPTIONS
+
+        AlertDialog(
+            onDismissRequest = { editingProjectIndex = -1 },
+            title = { Text("Edit Project") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = tempProject.name, onValueChange = { tempProject = tempProject.copy(name = it) }, label = { Text("Project Name") }, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SelectionField("Start M", tempProject.startMonth, MONTH_OPTIONS, { tempProject = tempProject.copy(startMonth = it) }, Modifier.weight(1f))
+                        SelectionField("Start Y", tempProject.startYear, YEAR_OPTIONS, { tempProject = tempProject.copy(startYear = it) }, Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SelectionField("End M", tempProject.endMonth, endMonthOptions, { tempProject = tempProject.copy(endMonth = it) }, Modifier.weight(1f))
+                        SelectionField("End Y", tempProject.endYear, endYearOptions, { tempProject = tempProject.copy(endYear = it) }, Modifier.weight(1f))
+                    }
+                    OutlinedTextField(value = tempProject.bullets, onValueChange = { tempProject = tempProject.copy(bullets = it) }, label = { Text("Bullets (one per line)") }, modifier = Modifier.fillMaxWidth().height(120.dp))
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val newList = vaultProjects.toMutableList()
+                    newList[editingProjectIndex] = tempProject
+                    scope.launch {
+                        userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(newList)))
+                        editingProjectIndex = -1
+                        snackbarHostState.showSnackbar("Project Updated!")
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editingProjectIndex = -1 }) { Text("Cancel") } }
+        )
+    }
+
+    // ✨ FIXED: Native Dropdown logic added to Edit Experience Dialog
+    if (editingExperienceIndex >= 0) {
+        val endMonthOptions = listOf("Present") + MONTH_OPTIONS
+        val endYearOptions = listOf("Present") + YEAR_OPTIONS
+
+        AlertDialog(
+            onDismissRequest = { editingExperienceIndex = -1 },
+            title = { Text("Edit Experience") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = tempExperience.company, onValueChange = { tempExperience = tempExperience.copy(company = it) }, label = { Text("Company") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = tempExperience.role, onValueChange = { tempExperience = tempExperience.copy(role = it) }, label = { Text("Role") }, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SelectionField("Start M", tempExperience.startMonth, MONTH_OPTIONS, { tempExperience = tempExperience.copy(startMonth = it) }, Modifier.weight(1f))
+                        SelectionField("Start Y", tempExperience.startYear, YEAR_OPTIONS, { tempExperience = tempExperience.copy(startYear = it) }, Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SelectionField("End M", tempExperience.endMonth, endMonthOptions, { tempExperience = tempExperience.copy(endMonth = it) }, Modifier.weight(1f))
+                        SelectionField("End Y", tempExperience.endYear, endYearOptions, { tempExperience = tempExperience.copy(endYear = it) }, Modifier.weight(1f))
+                    }
+                    OutlinedTextField(value = tempExperience.bullets, onValueChange = { tempExperience = tempExperience.copy(bullets = it) }, label = { Text("Bullets (one per line)") }, modifier = Modifier.fillMaxWidth().height(120.dp))
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val newList = vaultExperience.toMutableList()
+                    newList[editingExperienceIndex] = tempExperience
+                    scope.launch {
+                        userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(newList)))
+                        editingExperienceIndex = -1
+                        snackbarHostState.showSnackbar("Experience Updated!")
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editingExperienceIndex = -1 }) { Text("Cancel") } }
+        )
+    }
+
     if (showAnalyticsDialog) {
         Dialog(onDismissRequest = { showAnalyticsDialog = false }) {
             Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
@@ -466,7 +524,6 @@ fun MasterVaultScreen(
                             analyticsGaps.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
                         }
                     }
-
                     Spacer(Modifier.height(24.dp))
                     Button(onClick = { showAnalyticsDialog = false }, modifier = Modifier.fillMaxWidth()) { Text("Close") }
                 }

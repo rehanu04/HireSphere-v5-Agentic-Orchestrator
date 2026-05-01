@@ -10,9 +10,12 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -24,26 +27,29 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import com.rehanu04.resumematchv2.data.UserProfileStore
-import com.rehanu04.resumematchv2.util.isOnline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -53,19 +59,36 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.util.*
+import java.util.Locale
 import java.util.concurrent.TimeUnit
-import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.acos
+import kotlin.math.sqrt
+import kotlin.random.Random
 
-data class VoiceChatMessage(val role: String, val text: String)
+data class LiveInterviewRequest(
+    @SerializedName("target_role") val targetRole: String,
+    @SerializedName("job_description") val jobDescription: String,
+    @SerializedName("vault_data") val vaultData: String,
+    @SerializedName("chat_history") val chatHistory: String,
+    @SerializedName("user_audio_text") val userAudioText: String,
+    @SerializedName("elapsed_seconds") val elapsedSeconds: Int
+)
+
+data class LiveInterviewResponse(
+    @SerializedName("ai_reply") val aiReply: String,
+    @SerializedName("is_concluded") val isConcluded: Boolean
+)
+
+data class ChatTurn(val role: String, val text: String)
 
 data class InterviewFeedback(
     val hireability: String,
     val communicationFeedback: String,
     val technicalFeedback: String,
-    val improvementAreas: List<String>
+    val improvementAreas: List<String>,
+    val vaultCorrections: List<String>
 )
 
 @Composable
@@ -74,70 +97,102 @@ fun LiveInterviewScreen(
     userProfileStore: UserProfileStore,
     apiBaseUrl: String
 ) {
-    val context = LocalContext.current
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val focusManager = LocalFocusManager.current
-    val listState = rememberLazyListState()
-    val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = com.rehanu04.resumematchv2.data.UserProfile())
 
-    var isSetupPhase by remember { mutableStateOf(true) }
-    var targetRole by remember { mutableStateOf(userProfile.targetRole) }
-    var jobDescription by remember { mutableStateOf("") }
+    // INCREASED TIMEOUT TO 120s FOR RENDER COLD STARTS
+    val httpClient = remember {
+        OkHttpClient.Builder()
+            .connectTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .build()
+    }
 
-    var roleMenuExpanded by remember { mutableStateOf(false) }
-    val commonRoles = listOf("Software Engineer", "Backend Developer", "Frontend Developer", "Full Stack Engineer", "Data Scientist", "Machine Learning Engineer", "Product Manager", "Android Developer")
+    val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = null)
+    val vaultData = remember(userProfile) {
+        "Skills: ${userProfile?.savedSkillsJson}\nExperience: ${userProfile?.savedExperienceJson}\nProjects: ${userProfile?.savedProjectsJson}"
+    }
 
-    var hasMicPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
-    var isListening by remember { mutableStateOf(false) }
-    var isThinking by remember { mutableStateOf(false) }
-    var isAiSpeaking by remember { mutableStateOf(false) }
-    var transcript by remember { mutableStateOf(mutableListOf<VoiceChatMessage>()) }
-    var partialSpeech by remember { mutableStateOf("") }
+    var hasMicPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> hasMicPermission = granted }
 
+    var isStarted by remember { mutableStateOf(false) }
+    var isInterviewing by remember { mutableStateOf(false) }
     var isConcluded by remember { mutableStateOf(false) }
-    var timerSeconds by remember { mutableIntStateOf(0) }
+
+    var isAIThinking by remember { mutableStateOf(false) }
+    var isAITalking by remember { mutableStateOf(false) }
+    var isMicHot by remember { mutableStateOf(false) }
+
+    var transcript by remember { mutableStateOf(listOf<ChatTurn>()) }
+    var currentTranscript by remember { mutableStateOf("") }
+    var elapsedSeconds by remember { mutableStateOf(0) }
+    val maxSeconds = 300
 
     var isFetchingFeedback by remember { mutableStateOf(false) }
     var feedbackData by remember { mutableStateOf<InterviewFeedback?>(null) }
     var postInterviewTab by remember { mutableStateOf(0) }
 
-    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
-    var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
+    var showExitDialog by remember { mutableStateOf(false) }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        hasMicPermission = isGranted
-        if (!isGranted) Toast.makeText(context, "Microphone permission is required.", Toast.LENGTH_SHORT).show()
-    }
+    val listState = rememberLazyListState()
 
-    LaunchedEffect(isSetupPhase, isConcluded) {
-        if (!isSetupPhase && !isConcluded) {
-            while (true) {
-                delay(1000)
-                timerSeconds++
+    var speechRecognizer: SpeechRecognizer? by remember { mutableStateOf(null) }
+
+    fun startContinuousListening() {
+        if (!hasMicPermission || isConcluded || isAITalking || isAIThinking || !isInterviewing) return
+
+        ctx.mainExecutor.execute {
+            isMicHot = true
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 5000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 5000L)
             }
-        }
-    }
-    val timeString = String.format("%02d:%02d", timerSeconds / 60, timerSeconds % 60)
-
-    // --- Infinite Continuous Time for 3D Math ---
-    var continuousTime by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
-        var lastFrame = withFrameNanos { it }
-        while (true) {
-            withFrameNanos { frameTime ->
-                continuousTime += (frameTime - lastFrame) / 1_000_000_000f
-                lastFrame = frameTime
-            }
+            speechRecognizer?.startListening(intent)
         }
     }
 
-    fun fetchFeedbackReport(historyString: String) {
+    var tts: TextToSpeech? by remember { mutableStateOf(null) }
+    DisposableEffect(Unit) {
+        tts = TextToSpeech(ctx) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts?.language = Locale.US
+                tts?.setSpeechRate(1.05f)
+
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) {
+                        isAITalking = false
+                        if (isInterviewing && !isConcluded) {
+                            ctx.mainExecutor.execute { startContinuousListening() }
+                        }
+                    }
+                    override fun onError(utteranceId: String?) {
+                        isAITalking = false
+                        ctx.mainExecutor.execute { startContinuousListening() }
+                    }
+                })
+            }
+        }
+        onDispose { tts?.shutdown() }
+    }
+
+    DisposableEffect(Unit) {
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(ctx)
+        onDispose { speechRecognizer?.destroy() }
+    }
+
+    fun fetchFeedbackReport() {
         isFetchingFeedback = true
         scope.launch {
             try {
-                val client = OkHttpClient.Builder().connectTimeout(120, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS).build()
+                val historyString = transcript.joinToString("\n") { "${it.role}: ${it.text}" }
                 val jsonBody = JSONObject().apply {
-                    put("target_role", targetRole)
+                    put("target_role", userProfile?.targetRole ?: "Software Engineer")
                     put("chat_history", historyString)
                 }.toString()
 
@@ -147,382 +202,556 @@ fun LiveInterviewScreen(
                     .build()
 
                 val responseStr = withContext(Dispatchers.IO) {
-                    client.newCall(req).execute().use { response -> if (response.isSuccessful) response.body?.string() else null }
+                    httpClient.newCall(req).execute().use { response -> if (response.isSuccessful) response.body?.string() else null }
                 }
 
                 if (responseStr != null) {
                     val parsed = JSONObject(responseStr)
+
                     val areasArray = parsed.optJSONArray("improvement_areas")
                     val areasList = mutableListOf<String>()
                     if (areasArray != null) {
                         for (i in 0 until areasArray.length()) areasList.add(areasArray.getString(i))
                     }
+
+                    val correctionsArray = parsed.optJSONArray("vault_corrections")
+                    val correctionsList = mutableListOf<String>()
+                    if (correctionsArray != null) {
+                        for (i in 0 until correctionsArray.length()) correctionsList.add(correctionsArray.getString(i))
+                    }
+
                     feedbackData = InterviewFeedback(
                         hireability = parsed.optString("hireability", "Unknown"),
                         communicationFeedback = parsed.optString("communication_feedback", ""),
                         technicalFeedback = parsed.optString("technical_feedback", ""),
-                        improvementAreas = areasList
+                        improvementAreas = areasList,
+                        vaultCorrections = correctionsList
                     )
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Failed to load feedback.", Toast.LENGTH_SHORT).show()
+                val err = e.localizedMessage ?: "Unknown Error"
+                Toast.makeText(ctx, "Scorecard Error: $err", Toast.LENGTH_LONG).show()
             } finally {
                 isFetchingFeedback = false
             }
         }
     }
 
-    fun sendToAiBackend(userText: String) {
-        if (!isOnline(context)) { Toast.makeText(context, "Offline!", Toast.LENGTH_SHORT).show(); return }
-        isThinking = true
+    fun endInterview(timeUp: Boolean = false) {
+        isInterviewing = false
+        isAIThinking = false
+        isMicHot = false
+        speechRecognizer?.stopListening()
+
+        if (timeUp) {
+            isAITalking = true
+            tts?.speak("Our time is up. Let's conclude the interview and review your scorecard.", TextToSpeech.QUEUE_FLUSH, null, "LiveInterviewTTS_END")
+            scope.launch {
+                delay(4000)
+                isAITalking = false
+                isConcluded = true
+                fetchFeedbackReport()
+            }
+        } else {
+            isConcluded = true
+            tts?.stop()
+            fetchFeedbackReport()
+        }
+    }
+
+    LaunchedEffect(isInterviewing) {
+        while (isInterviewing && elapsedSeconds < maxSeconds) {
+            delay(1000)
+            elapsedSeconds++
+        }
+        if (elapsedSeconds >= maxSeconds && isInterviewing) {
+            endInterview(timeUp = true)
+        }
+    }
+
+    BackHandler {
+        if (isInterviewing) {
+            Toast.makeText(ctx, "Please end the interview first.", Toast.LENGTH_SHORT).show()
+        } else if (isConcluded) {
+            showExitDialog = true
+        } else {
+            onBack()
+        }
+    }
+
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text("Exit Scorecard?") },
+            text = { Text("Are you sure you want to leave? Your scorecard will not be saved.") },
+            containerColor = Color(0xFF1E293B),
+            titleContentColor = Color.White,
+            textContentColor = Color.LightGray,
+            confirmButton = {
+                TextButton(onClick = { showExitDialog = false; onBack() }) { Text("Exit", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitDialog = false }) { Text("Cancel", color = Color(0xFF38BDF8)) }
+            }
+        )
+    }
+
+    fun speak(text: String) {
+        isAITalking = true
+        isMicHot = false
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "LiveInterviewTTS_${System.currentTimeMillis()}")
+    }
+
+    fun sendAudioToGemini(finalizedText: String, isSystemTrigger: Boolean = false) {
+        if (finalizedText.isBlank() && !isSystemTrigger) {
+            startContinuousListening()
+            return
+        }
+
+        isMicHot = false
+        if (!isSystemTrigger) {
+            transcript = transcript + ChatTurn("Candidate", finalizedText)
+        }
+        currentTranscript = ""
+        isAIThinking = true
+
         scope.launch {
             try {
-                val client = OkHttpClient.Builder().connectTimeout(120, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).build()
-                val vaultDataStr = "Skills: ${userProfile.savedSkillsJson}\nExp: ${userProfile.savedExperienceJson}\nProjects: ${userProfile.savedProjectsJson}"
-                val historyString = transcript.joinToString("\n") { "${it.role}: ${it.text}" }
+                val reqObj = LiveInterviewRequest(
+                    targetRole = userProfile?.targetRole ?: "Software Engineer",
+                    jobDescription = "General tech interview based on profile.",
+                    vaultData = vaultData,
+                    chatHistory = Gson().toJson(transcript),
+                    userAudioText = finalizedText,
+                    elapsedSeconds = elapsedSeconds
+                )
 
-                val jsonBody = JSONObject().apply {
-                    put("target_role", targetRole.ifBlank { "Software Engineer" })
-                    put("job_description", jobDescription)
-                    put("vault_data", vaultDataStr)
-                    put("chat_history", historyString)
-                    put("user_audio_text", userText)
-                    put("elapsed_seconds", timerSeconds)
-                }.toString()
+                val reqBuilder = Request.Builder()
+                    .url(apiBaseUrl.trimEnd('/') + "/v1/ai/live-interview")
+                    .post(Gson().toJson(reqObj).toRequestBody("application/json".toMediaType()))
+                    .build()
 
-                val req = Request.Builder().url(apiBaseUrl.trimEnd('/') + "/v1/ai/live-interview").post(jsonBody.toRequestBody("application/json".toMediaType())).build()
+                val response = withContext(Dispatchers.IO) { httpClient.newCall(reqBuilder).execute() }
+                val body = response.body?.string()
 
-                val responseStr = withContext(Dispatchers.IO) {
-                    client.newCall(req).execute().use { response ->
-                        val body = response.body?.string()
-                        if (response.isSuccessful) body else throw Exception("HTTP ${response.code}: $body")
+                if (response.isSuccessful && body != null) {
+                    val aiRes = Gson().fromJson(body, LiveInterviewResponse::class.java)
+                    transcript = transcript + ChatTurn("Interviewer", aiRes.aiReply)
+                    isAIThinking = false
+
+                    if (aiRes.isConcluded || elapsedSeconds >= maxSeconds) {
+                        endInterview(timeUp = false)
+                    } else {
+                        speak(aiRes.aiReply)
                     }
-                }
-
-                if (responseStr != null) {
-                    val parsed = JSONObject(responseStr)
-                    val aiReply = parsed.optString("ai_reply", "I'm sorry, I didn't catch that.")
-                    val aiConcluded = parsed.optBoolean("is_concluded", false)
-
-                    transcript = (transcript + VoiceChatMessage("Interviewer", aiReply)).toMutableList()
-                    isAiSpeaking = true
-                    tts?.speak(aiReply, TextToSpeech.QUEUE_FLUSH, null, "AI_REPLY")
-
-                    if (aiConcluded) {
-                        isConcluded = true
-                        fetchFeedbackReport(transcript.joinToString("\n") { "${it.role}: ${it.text}" })
-                    }
+                } else {
+                    isAIThinking = false
+                    if (!isSystemTrigger) transcript = transcript + ChatTurn("System", "Connection error. Retrying...")
+                    startContinuousListening()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-            } finally {
-                isThinking = false
+                isAIThinking = false
+                val err = e.localizedMessage ?: "Unknown Error"
+                Toast.makeText(ctx, "Network Error: Server taking too long to respond. Try again.", Toast.LENGTH_LONG).show()
+                startContinuousListening()
             }
         }
     }
 
     DisposableEffect(Unit) {
-        tts = TextToSpeech(context) { status -> if (status == TextToSpeech.SUCCESS) tts?.language = Locale.US }
-        tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) { isAiSpeaking = true }
-            override fun onDone(utteranceId: String?) { isAiSpeaking = false }
-            @Deprecated("Deprecated in Java") override fun onError(utteranceId: String?) { isAiSpeaking = false }
-        })
-
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
-        val listener = object : RecognitionListener {
+        speechRecognizer?.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {}
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() { isListening = false }
-            override fun onError(error: Int) { isListening = false; partialSpeech = "" }
-            override fun onPartialResults(partialResults: Bundle?) {
-                val data = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if (!data.isNullOrEmpty()) partialSpeech = data[0]
-            }
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-            override fun onResults(results: Bundle?) {
-                isListening = false
-                partialSpeech = ""
-                val data = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if (!data.isNullOrEmpty()) {
-                    val spokenText = data[0]
-                    transcript = (transcript + VoiceChatMessage("Candidate", spokenText)).toMutableList()
-                    sendToAiBackend(spokenText)
+            override fun onEndOfSpeech() { isMicHot = false }
+            override fun onError(error: Int) {
+                isMicHot = false
+                if (isInterviewing && !isAITalking && !isAIThinking) {
+                    startContinuousListening()
                 }
             }
-        }
-        speechRecognizer?.setRecognitionListener(listener)
-
-        onDispose { tts?.stop(); tts?.shutdown(); speechRecognizer?.destroy() }
-    }
-
-    LaunchedEffect(transcript.size, partialSpeech, isFetchingFeedback, feedbackData) {
-        if (transcript.isNotEmpty()) listState.animateScrollToItem(transcript.size + 2)
+            override fun onResults(results: Bundle?) {
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty() && matches[0].isNotBlank()) {
+                    sendAudioToGemini(matches[0])
+                } else {
+                    if (isInterviewing && !isAITalking && !isAIThinking) startContinuousListening()
+                }
+            }
+            override fun onPartialResults(partialResults: Bundle?) {
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) currentTranscript = matches[0]
+            }
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
+        onDispose { }
     }
 
     fun startInterview() {
-        if (targetRole.isBlank() || jobDescription.isBlank()) { Toast.makeText(context, "Enter Role & JD.", Toast.LENGTH_SHORT).show(); return }
-        focusManager.clearFocus()
-        isSetupPhase = false
-        timerSeconds = 0
+        if (!hasMicPermission) { permLauncher.launch(Manifest.permission.RECORD_AUDIO); return }
+        isStarted = true; isInterviewing = true; isConcluded = false; elapsedSeconds = 0
+        transcript = emptyList(); currentTranscript = ""
 
-        val intro = "Hello! I am your AI Interviewer. I have reviewed your profile and the job description. Whenever you are ready, tap the microphone to say hello and we can begin."
-        transcript = mutableListOf(VoiceChatMessage("Interviewer", intro))
-        isAiSpeaking = true
-        tts?.speak(intro, TextToSpeech.QUEUE_FLUSH, null, "INTRO")
+        val sysPrompt = "[SYSTEM INITIALIZATION: The interview is starting. Give a brief, welcoming opening statement. Address the candidate as Rehan. Do not wait for a response, just greet and ask the first question.]"
+        sendAudioToGemini(sysPrompt, isSystemTrigger = true)
     }
 
-    fun toggleListening() {
-        if (!hasMicPermission) { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO); return }
-        if (isListening) {
-            speechRecognizer?.stopListening()
-            isListening = false
-        } else {
-            tts?.stop()
-            isAiSpeaking = false
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            }
-            speechRecognizer?.startListening(intent)
-            isListening = true
-        }
-    }
+    val luxuryBgColor = Color(0xFF030303)
 
     Scaffold(
-        modifier = Modifier.statusBarsPadding(),
         topBar = {
             TopAppBar(
-                title = { Text(if (isSetupPhase) "Interview Setup" else if (isConcluded) "Interview Complete" else "Live Interview", fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconButton(onClick = { tts?.stop(); onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                actions = {
-                    if (!isSetupPhase && !isConcluded) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.padding(end = 16.dp)
-                        ) {
-                            Text(timeString, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
-                        }
-                    }
+                title = { Text(if (isConcluded) "Interview Complete" else "MasterR Technical Interview", color = Color.White, style = MaterialTheme.typography.titleMedium) },
+                navigationIcon = {
+                    if (!isInterviewing) IconButton(onClick = {
+                        if (isConcluded) showExitDialog = true else onBack()
+                    }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White) }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                actions = {
+                    if (isInterviewing) {
+                        IconButton(onClick = { endInterview(timeUp = false) }) { Icon(Icons.Filled.Close, "End Early", tint = Color.Gray) }
+                    }
+                }
             )
         },
-        bottomBar = {
-            if (!isSetupPhase && !isConcluded) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp).navigationBarsPadding()
-                    ) {
-                        val infiniteTransition = rememberInfiniteTransition()
-                        val scale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = if (isListening) 1.2f else 1f, animationSpec = infiniteRepeatable(animation = tween(800), repeatMode = RepeatMode.Reverse))
-
-                        Text(if (isListening) "Listening..." else if (isThinking) "Thinking..." else if (isAiSpeaking) "AI is speaking..." else "Tap to Speak", color = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(16.dp))
-
-                        FloatingActionButton(
-                            onClick = { toggleListening() },
-                            containerColor = if (isListening) MaterialTheme.colorScheme.error else if (isThinking) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(72.dp).scale(scale),
-                            shape = CircleShape
-                        ) {
-                            Icon(if (isListening) Icons.Filled.Stop else Icons.Filled.Mic, "Mic", modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                        }
-                    }
-                }
-            }
-        }
+        containerColor = luxuryBgColor
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
 
-            if (isSetupPhase) {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp), shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Target Role", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            StarfieldBackground()
 
-                        ExposedDropdownMenuBox(
-                            expanded = roleMenuExpanded,
-                            onExpandedChange = { roleMenuExpanded = !roleMenuExpanded },
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (!isStarted && !isConcluded) {
+                    Spacer(Modifier.weight(1f))
+                    Box(modifier = Modifier.fillMaxWidth().height(340.dp), contentAlignment = Alignment.Center) {
+                        ParticleBlobOrb(isThinking = false, isTalking = false, isListening = false)
+                    }
+                    Spacer(Modifier.height(48.dp))
+                    Text("Ready to begin?", style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Light)
+                    Spacer(Modifier.height(16.dp))
+                    Text("Hands-free mode active.\nThe AI will evaluate you like a Senior Recruiter.", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                    Spacer(Modifier.height(48.dp))
+                    Button(
+                        onClick = { startInterview() },
+                        modifier = Modifier.fillMaxWidth(0.7f).height(50.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Initiate Session", style = MaterialTheme.typography.titleSmall, color = Color.White, letterSpacing = 1.5.sp)
+                    }
+                    Spacer(Modifier.weight(1f))
+                } else if (isConcluded) {
+                    Column(Modifier.fillMaxSize()) {
+                        TabRow(
+                            selectedTabIndex = postInterviewTab,
+                            containerColor = Color.Transparent,
+                            contentColor = Color.White,
+                            indicator = { tabPositions ->
+                                TabRowDefaults.Indicator(
+                                    Modifier.tabIndicatorOffset(tabPositions[postInterviewTab]),
+                                    color = Color(0xFF38BDF8)
+                                )
+                            }
                         ) {
-                            OutlinedTextField(
-                                value = targetRole, onValueChange = { targetRole = it },
-                                modifier = Modifier.menuAnchor().fillMaxWidth(),
-                                singleLine = true, placeholder = { Text("e.g. Backend Engineer") },
-                                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
-                            )
-                            ExposedDropdownMenu(expanded = roleMenuExpanded, onDismissRequest = { roleMenuExpanded = false }) {
-                                commonRoles.forEach { selection ->
-                                    DropdownMenuItem(text = { Text(selection) }, onClick = { targetRole = selection; roleMenuExpanded = false })
+                            Tab(selected = postInterviewTab == 0, onClick = { postInterviewTab = 0 }, text = { Text("AI Scorecard") })
+                            Tab(selected = postInterviewTab == 1, onClick = { postInterviewTab = 1 }, text = { Text("Full Transcript") })
+                        }
+
+                        if (postInterviewTab == 0) {
+                            if (isFetchingFeedback) {
+                                Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                    CircularProgressIndicator(color = Color(0xFF475569))
+                                    Spacer(Modifier.height(16.dp))
+                                    Text("Generating SROM Feedback Report...", color = Color.Gray)
                                 }
-                            }
-                        }
+                            } else if (feedbackData != null) {
+                                LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                                    item {
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.8f))
+                                        ) {
+                                            Column(Modifier.padding(24.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF10B981))
+                                                    Spacer(Modifier.width(12.dp))
+                                                    Text("Hireability Assessment", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                                                }
+                                                Spacer(Modifier.height(8.dp))
+                                                Text(feedbackData!!.hireability, style = MaterialTheme.typography.headlineSmall, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
+                                                HorizontalDivider(Modifier.padding(vertical = 16.dp), color = Color.DarkGray)
 
-                        Spacer(Modifier.height(16.dp))
-                        Text("Job Description", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        OutlinedTextField(
-                            value = jobDescription, onValueChange = { jobDescription = it },
-                            placeholder = { Text("Paste the JD here...") }, modifier = Modifier.fillMaxWidth().height(140.dp).padding(top = 8.dp)
-                        )
-                        Spacer(Modifier.height(24.dp))
-                        Button(onClick = { startInterview() }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) {
-                            Icon(Icons.Filled.AutoAwesome, null); Spacer(Modifier.width(8.dp)); Text("Start Virtual Interview")
-                        }
-                    }
-                }
-            } else if (!isConcluded) {
-                // 🟢 3D POINT-CLOUD SPHERE (ZARA STYLE) - FIXED MATH TYPES
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(modifier = Modifier.size(300.dp), contentAlignment = Alignment.Center) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val centerX = size.width / 2f
-                            val centerY = size.height / 2f
+                                                Text("Communication Analysis", fontWeight = FontWeight.Bold, color = Color.LightGray)
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(feedbackData!!.communicationFeedback, style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                                                Spacer(Modifier.height(16.dp))
 
-                            val baseRadius = size.minDimension / 2.5f
+                                                Text("Technical Accuracy", fontWeight = FontWeight.Bold, color = Color.LightGray)
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(feedbackData!!.technicalFeedback, style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                                                Spacer(Modifier.height(24.dp))
 
-                            val rotY = continuousTime * 1.2f
-                            val rotX = continuousTime * 0.4f
+                                                Text("Critical Areas for Improvement", fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                                                feedbackData!!.improvementAreas.forEach { point ->
+                                                    Row(modifier = Modifier.padding(top = 8.dp)) {
+                                                        Icon(Icons.Filled.Warning, null, modifier = Modifier.size(16.dp).padding(top=2.dp), tint = Color(0xFFEF4444))
+                                                        Spacer(Modifier.width(8.dp))
+                                                        Text(point, style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                                                    }
+                                                }
 
-                            val numLatitudes = 18
-                            val numLongitudes = 24
-
-                            val baseColor = if (isListening) Color(0xFF00E676) else if (isAiSpeaking) Color(0xFF00B0FF) else Color(0xFF1DE9B6)
-
-                            for (i in 0..numLatitudes) {
-                                val lat = (PI * i / numLatitudes).toFloat()
-                                for (j in 0..numLongitudes) {
-                                    val lon = (2 * PI * j / numLongitudes).toFloat()
-
-                                    var x = baseRadius * sin(lat) * cos(lon)
-                                    var y = baseRadius * cos(lat)
-                                    var z = baseRadius * sin(lat) * sin(lon)
-
-                                    val distAmp = if (isListening) 20f else if (isAiSpeaking) 12f else 3f
-                                    val distSpeed = if (isListening) 5f else 2f
-                                    val distortion = sin(lat * 3f + continuousTime * distSpeed) * cos(lon * 4f + continuousTime * distSpeed) * distAmp
-
-                                    val rAdjusted = baseRadius + distortion
-                                    x = rAdjusted * sin(lat) * cos(lon)
-                                    y = rAdjusted * cos(lat)
-                                    z = rAdjusted * sin(lat) * sin(lon)
-
-                                    val yRot = y * cos(rotX) - z * sin(rotX)
-                                    val zRot = y * sin(rotX) + z * cos(rotX)
-                                    y = yRot
-                                    z = zRot
-
-                                    val xRot2 = x * cos(rotY) + z * sin(rotY)
-                                    val zRot2 = -x * sin(rotY) + z * cos(rotY)
-                                    x = xRot2
-                                    z = zRot2
-
-                                    val projX = centerX + x
-                                    val projY = centerY + y
-
-                                    val depth = (z + baseRadius) / (2f * baseRadius)
-                                    val alpha = (0.15f + 0.85f * depth).coerceIn(0.1f, 1f)
-                                    val dotSize = (1f + 3.5f * depth).coerceIn(1f, 4.5f)
-
-                                    drawCircle(
-                                        color = baseColor.copy(alpha = alpha),
-                                        radius = dotSize,
-                                        center = Offset(projX, projY)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(60.dp))
-                    if (partialSpeech.isNotBlank()) {
-                        Text(partialSpeech, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(horizontal = 32.dp))
-                    } else if (isThinking) {
-                        Text("Analyzing your answer...", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
-                    } else {
-                        Text("Live Interview Active", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            } else {
-                // 📊 POST-INTERVIEW DASHBOARD
-                Column(Modifier.fillMaxSize()) {
-                    TabRow(selectedTabIndex = postInterviewTab) {
-                        Tab(selected = postInterviewTab == 0, onClick = { postInterviewTab = 0 }, text = { Text("Feedback Scorecard") })
-                        Tab(selected = postInterviewTab == 1, onClick = { postInterviewTab = 1 }, text = { Text("Transcript") })
-                    }
-
-                    if (postInterviewTab == 0) {
-                        if (isFetchingFeedback) {
-                            Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                CircularProgressIndicator(); Spacer(Modifier.height(16.dp)); Text("Recruiter is writing your feedback...", color = MaterialTheme.colorScheme.primary)
-                            }
-                        } else if (feedbackData != null) {
-                            LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                                item {
-                                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-                                        Column(Modifier.padding(24.dp)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
-                                                Spacer(Modifier.width(12.dp))
-                                                Text("Hireability", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                            }
-                                            Spacer(Modifier.height(8.dp))
-                                            Text(feedbackData!!.hireability, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                            Divider(Modifier.padding(vertical = 16.dp))
-
-                                            Text("Communication Skills", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                            Text(feedbackData!!.communicationFeedback, style = MaterialTheme.typography.bodyMedium)
-                                            Spacer(Modifier.height(16.dp))
-
-                                            Text("Technical Accuracy", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                            Text(feedbackData!!.technicalFeedback, style = MaterialTheme.typography.bodyMedium)
-                                            Spacer(Modifier.height(24.dp))
-
-                                            Text("Crucial Areas to Improve", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                                            feedbackData!!.improvementAreas.forEach { point ->
-                                                Row(modifier = Modifier.padding(top = 8.dp)) {
-                                                    Icon(Icons.Filled.Warning, null, modifier = Modifier.size(16.dp).padding(top=2.dp), tint = MaterialTheme.colorScheme.error)
-                                                    Spacer(Modifier.width(8.dp))
-                                                    Text(point, style = MaterialTheme.typography.bodyMedium)
+                                                if (feedbackData!!.vaultCorrections.isNotEmpty()) {
+                                                    Spacer(Modifier.height(24.dp))
+                                                    Text("Vault Corrections Detected", fontWeight = FontWeight.Bold, color = Color(0xFFD4AF37))
+                                                    Text("The AI noted these factual corrections during your chat:", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
+                                                    feedbackData!!.vaultCorrections.forEach { point ->
+                                                        Row(modifier = Modifier.padding(top = 8.dp)) {
+                                                            Icon(Icons.Filled.Memory, null, modifier = Modifier.size(16.dp).padding(top=2.dp), tint = Color(0xFFD4AF37))
+                                                            Spacer(Modifier.width(8.dp))
+                                                            Text(point, style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
+                                        Spacer(Modifier.height(32.dp))
+                                        Button(
+                                            onClick = { showExitDialog = true },
+                                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                                        ) {
+                                            Text("Return to Vault", color = Color.White)
+                                        }
                                     }
                                 }
                             }
-                        }
-                    } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                            items(transcript) { msg ->
-                                val isCandidate = msg.role == "Candidate"
-                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = if (isCandidate) Arrangement.End else Arrangement.Start) {
-                                    Box(modifier = Modifier.fillMaxWidth(0.85f).clip(RoundedCornerShape(16.dp, 16.dp, if(isCandidate) 0.dp else 16.dp, if(isCandidate) 16.dp else 0.dp)).background(if (isCandidate) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer).padding(16.dp)) {
-                                        Column {
-                                            Text(msg.role, style = MaterialTheme.typography.labelSmall, color = if (isCandidate) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
-                                            Spacer(Modifier.height(4.dp))
-                                            Text(msg.text, style = MaterialTheme.typography.bodyLarge, color = if (isCandidate) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer)
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+                                items(transcript) { msg ->
+                                    val isCandidate = msg.role == "Candidate"
+                                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = if (isCandidate) Alignment.End else Alignment.Start) {
+                                        Text(if (isCandidate) "YOU" else "MASTERR", style = MaterialTheme.typography.labelSmall, color = Color.Gray, letterSpacing = 1.5.sp)
+                                        Spacer(Modifier.height(4.dp))
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = if (isCandidate) Color(0xFF334155) else Color(0xFF1E293B)),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text(msg.text, style = MaterialTheme.typography.bodyMedium, color = Color.White, modifier = Modifier.padding(12.dp))
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                } else {
+
+                    val minutes = elapsedSeconds / 60
+                    val seconds = elapsedSeconds % 60
+                    Text(
+                        text = String.format("%02d:%02d", minutes, seconds),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (elapsedSeconds > 240) MaterialTheme.colorScheme.error else Color.Gray,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 2.sp,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+
+                    Spacer(Modifier.weight(1f))
+
+                    Box(modifier = Modifier.fillMaxWidth().height(380.dp), contentAlignment = Alignment.Center) {
+                        ParticleBlobOrb(isThinking = isAIThinking, isTalking = isAITalking, isListening = isMicHot)
+                    }
+
+                    Spacer(Modifier.weight(1f))
+
+                    val statusText = when {
+                        isMicHot -> "MASTERR IS LISTENING..."
+                        isAIThinking -> "ANALYZING VECTORS..."
+                        isAITalking -> "SYNTHESIZING RESPONSE..."
+                        else -> "SYSTEM INITIALIZING..."
+                    }
+                    val statusColor = when {
+                        isMicHot -> Color(0xFF10B981)
+                        isAIThinking -> Color(0xFFD4AF37)
+                        isAITalking -> Color(0xFF38BDF8)
+                        else -> Color.DarkGray
+                    }
+
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = statusColor,
+                        letterSpacing = 2.sp,
+                        modifier = Modifier.padding(bottom = 24.dp)
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .padding(bottom = 56.dp)
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(if (isMicHot) Color(0xFF10B981).copy(alpha = 0.2f) else Color.Transparent),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(modifier = Modifier.size(56.dp).clip(CircleShape).background(if (isMicHot) Color(0xFF10B981) else Color.White.copy(alpha = 0.05f)), contentAlignment = Alignment.Center) {
+                            Icon(if (isMicHot) Icons.Filled.Mic else Icons.Filled.Close, contentDescription = "Mic Status", tint = if (isMicHot) Color.Black else Color.Gray, modifier = Modifier.size(28.dp))
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun StarfieldBackground() {
+    val infiniteTransition = rememberInfiniteTransition()
+    val time by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(tween(100000, easing = LinearEasing), repeatMode = RepeatMode.Restart)
+    )
+
+    val stars = remember {
+        List(150) {
+            Triple(Random.nextFloat(), Random.nextFloat(), Random.nextFloat())
+        }
+    }
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        stars.forEachIndexed { index, star ->
+            val (x, y, starSize) = star
+            val drift = (time * 0.01f * (starSize + 0.5f)) % 1f
+            val actualY = (y + drift) % 1f
+            val twinkle = (sin((time * 0.1f + index).toDouble()).toFloat() + 1f) / 2f
+
+            drawCircle(
+                color = Color.White.copy(alpha = 0.1f + (twinkle * 0.3f)),
+                radius = starSize * 2.5f,
+                center = Offset(x * size.width, actualY * size.height)
+            )
+        }
+    }
+}
+
+@Composable
+fun ParticleBlobOrb(isThinking: Boolean, isTalking: Boolean, isListening: Boolean) {
+
+    val targetColor = when {
+        isListening -> Color(0xFF10B981)
+        isThinking -> Color(0xFFD4AF37)
+        isTalking -> Color(0xFF38BDF8)
+        else -> Color(0xFF1E3A8A)
+    }
+
+    val coreColor by animateColorAsState(targetValue = targetColor, animationSpec = tween(1500))
+
+    var rotX by remember { mutableFloatStateOf(0f) }
+    var rotY by remember { mutableFloatStateOf(0f) }
+    var rotZ by remember { mutableFloatStateOf(0f) }
+    var waveTime by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastTime = withFrameNanos { it }
+        while (true) {
+            val currentTime = withFrameNanos { it }
+            val deltaMs = (currentTime - lastTime) / 1_000_000f
+            lastTime = currentTime
+
+            rotY += deltaMs * 0.0004f
+            rotX += deltaMs * 0.0002f
+            rotZ += deltaMs * 0.0003f
+            waveTime += deltaMs * 0.003f
+        }
+    }
+
+    val targetBounce = if (isTalking) 0.15f else if (isListening) 0.08f else 0.02f
+    val currentBounce by animateFloatAsState(targetValue = targetBounce, animationSpec = tween(400, easing = FastOutSlowInEasing))
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val numPoints = 800
+        val goldenRatio = (1.0 + sqrt(5.0)) / 2.0
+        val angleIncrement = Math.PI * 2.0 * goldenRatio
+
+        val radius = size.width / 3.4f
+        val center = Offset(size.width / 2, size.height / 2)
+        val focalLength = radius * 3.0f
+
+        val glowRadius = radius * 2.5f
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(coreColor.copy(alpha = 0.25f), Color.Transparent),
+                center = center,
+                radius = glowRadius
+            ),
+            radius = glowRadius,
+            center = center
+        )
+
+        data class Point3D(val z: Float, val screenX: Float, val screenY: Float, val pointRadius: Float, val alpha: Float)
+        val projectedPoints = mutableListOf<Point3D>()
+
+        val rotZ_D = rotZ.toDouble()
+        val rotX_D = rotX.toDouble()
+        val rotY_D = rotY.toDouble()
+
+        for (i in 0 until numPoints) {
+            val t = i.toDouble() / numPoints.toDouble()
+            val phi = acos(1.0 - 2.0 * t)
+            val theta = angleIncrement * i
+
+            val startX = (sin(phi) * cos(theta)).toFloat()
+            val startY = (sin(phi) * sin(theta)).toFloat()
+            val startZ = (cos(phi)).toFloat()
+
+            val x1 = (startX * cos(rotZ_D) - startY * sin(rotZ_D)).toFloat()
+            val y1 = (startX * sin(rotZ_D) + startY * cos(rotZ_D)).toFloat()
+            val y2 = (y1 * cos(rotX_D) - startZ * sin(rotX_D)).toFloat()
+            val z2 = (y1 * sin(rotX_D) + startZ * cos(rotX_D)).toFloat()
+            val finalX = (x1 * cos(rotY_D) - z2 * sin(rotY_D)).toFloat()
+            val finalZ = (x1 * sin(rotY_D) + z2 * cos(rotY_D)).toFloat()
+
+            val waveSpeed = if (isTalking) 8f else 3f
+            val wTime = waveTime * waveSpeed
+
+            val waveX = sin((finalX * 4f + wTime).toDouble()).toFloat()
+            val waveY = cos((y2 * 4f - wTime * 0.8f).toDouble()).toFloat()
+            val waveZ = sin((finalZ * 4f + wTime * 1.2f).toDouble()).toFloat()
+
+            val organicDeformation = (waveX + waveY + waveZ) / 3f
+            val currentRadius = radius * (1f + (organicDeformation * currentBounce))
+
+            val pulseX = finalX * currentRadius
+            val pulseY = y2 * currentRadius
+            val pulseZ = finalZ * currentRadius
+
+            val perspectiveScale = focalLength / (focalLength - pulseZ)
+            val screenX = center.x + (pulseX * perspectiveScale)
+            val screenY = center.y + (pulseY * perspectiveScale)
+
+            val pointRadius = 2.0f * perspectiveScale
+            val depthRatio = (pulseZ + radius) / (radius * 2f)
+
+            var alpha = depthRatio.coerceIn(0.3f, 1.0f)
+            if (pulseZ < 0) alpha *= 0.7f
+
+            projectedPoints.add(Point3D(pulseZ, screenX, screenY, pointRadius, alpha))
+        }
+
+        projectedPoints.sortBy { it.z }
+
+        for (pt in projectedPoints) {
+            drawCircle(
+                color = coreColor.copy(alpha = pt.alpha),
+                radius = pt.pointRadius,
+                center = Offset(pt.screenX, pt.screenY)
+            )
         }
     }
 }

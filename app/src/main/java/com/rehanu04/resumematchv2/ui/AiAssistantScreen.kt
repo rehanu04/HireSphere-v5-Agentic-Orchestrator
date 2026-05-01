@@ -1,14 +1,21 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.rehanu04.resumematchv2.ui
 
+import android.Manifest
 import android.content.Intent
 import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -19,8 +26,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.rehanu04.resumematchv2.data.UserProfileStore
@@ -37,11 +50,9 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 data class ChatMessage(val text: String, val isUser: Boolean, val isLoading: Boolean = false)
-
 data class AiExperience(val company: String = "", val role: String = "", val startMonth: String = "", val startYear: String = "", val endMonth: String = "", val endYear: String = "", val bullets: String = "")
 data class AiProject(val name: String = "", val startMonth: String = "", val startYear: String = "", val endMonth: String = "", val endYear: String = "", val bullets: String = "")
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiAssistantScreen(
     onBack: () -> Unit,
@@ -115,11 +126,17 @@ fun AiAssistantScreen(
         val transcript = currentInput
         currentInput = ""
 
-        messages = messages + ChatMessage(transcript, true) + ChatMessage("Thinking...", false, isLoading = true)
+        messages = messages + ChatMessage(transcript, true) + ChatMessage("Analyzing...", false, isLoading = true)
 
         scope.launch {
             try {
-                val client = OkHttpClient.Builder().connectTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
+                // INCREASED TIMEOUT TO 120s FOR RENDER COLD STARTS
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(120, TimeUnit.SECONDS)
+                    .readTimeout(120, TimeUnit.SECONDS)
+                    .writeTimeout(120, TimeUnit.SECONDS)
+                    .build()
+
                 val jsonBody = JSONObject().apply { put("transcript", transcript) }.toString()
                 val safeBaseUrl = if (apiBaseUrl.isNotBlank()) apiBaseUrl else "http://192.168.1.6:8000"
 
@@ -134,7 +151,6 @@ fun AiAssistantScreen(
                         val parsedObj = JSONObject(responseStr)
                         val aiReply = parsedObj.optString("reply", "I've saved your details to the Vault!")
 
-                        // ✨ FIXED: Check for Personal Info!
                         val aiFirstName = parsedObj.optString("first_name", "").trim()
                         val aiLastName = parsedObj.optString("last_name", "").trim()
                         val aiRole = parsedObj.optString("target_role", "").trim()
@@ -147,7 +163,6 @@ fun AiAssistantScreen(
                             if (userProfile.summary.isBlank()) aiSummary else "${userProfile.summary}\n$aiSummary"
                         } else userProfile.summary
 
-                        // Check for Vault Info
                         val newProjectsJson = parsedObj.optJSONArray("projects")?.toString() ?: "[]"
                         val newExperienceJson = parsedObj.optJSONArray("experience")?.toString() ?: "[]"
                         val newSkillsJson = parsedObj.optJSONArray("skills_suggested")?.toString() ?: "[]"
@@ -200,68 +215,114 @@ fun AiAssistantScreen(
                     messages = messages.dropLast(1) + ChatMessage("Backend Error: Server returned a failure status.", false)
                 }
             } catch (e: Exception) {
-                messages = messages.dropLast(1) + ChatMessage("Connection Error: Request timed out. Ensure your Render server is awake!", false)
+                messages = messages.dropLast(1) + ChatMessage("Connection Error: Request timed out while waiting for server to wake up.", false)
             }
         }
     }
 
+    val luxuryBgColor = Color(0xFF030303)
+
     Scaffold(
-        modifier = Modifier.statusBarsPadding(),
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text("AI Assistant")
-                        if (!hasInternet) Text("Offline Mode", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text("Master Vault Assistant", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                        if (!hasInternet) Text("Offline Mode", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     }
                 },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) } },
                 actions = {
                     TextButton(onClick = {
                         scope.launch {
                             messages = emptyList()
                             userProfileStore.saveUserProfile(userProfile.copy(chatHistoryJson = "[]"))
                         }
-                    }) { Text("Clear Chat") }
-                }
+                    }) { Text("Clear", color = Color.Gray) }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
-        }
+        },
+        containerColor = luxuryBgColor
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(messages) { msg -> ChatBubble(msg) }
+        Box(modifier = Modifier.fillMaxSize()) {
+
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val glareRadius = size.width * 1.5f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFF38BDF8).copy(alpha = 0.15f), Color.Transparent),
+                        center = Offset(size.width / 2, 0f),
+                        radius = glareRadius
+                    ),
+                    radius = glareRadius,
+                    center = Offset(size.width / 2, 0f)
+                )
             }
 
-            Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
-                Row(modifier = Modifier.padding(16.dp).navigationBarsPadding().imePadding(), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = currentInput,
-                        onValueChange = { currentInput = it },
-                        modifier = Modifier.weight(1f),
-                        enabled = hasInternet,
-                        placeholder = { Text(if (isListening) "Listening..." else if(!hasInternet) "Waiting for connection..." else "Type or tap microphone...") },
-                        shape = RoundedCornerShape(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    FloatingActionButton(
-                        onClick = {
-                            hasInternet = isOnline(context)
-                            if (hasInternet) {
-                                if (currentInput.isNotBlank()) sendMessage()
-                                else permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                            } else {
-                                Toast.makeText(context, "Offline - Please connect to Wi-Fi", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        containerColor = if(hasInternet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                        shape = RoundedCornerShape(24.dp)
+            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(messages) { msg -> ChatBubble(msg) }
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, luxuryBgColor)))) {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.Bottom
                     ) {
-                        Icon(if (!hasInternet) Icons.Filled.MicOff else if (currentInput.isBlank()) Icons.Filled.Mic else Icons.Filled.Send, contentDescription = "Send")
+                        OutlinedTextField(
+                            value = currentInput,
+                            onValueChange = { currentInput = it },
+                            modifier = Modifier.weight(1f),
+                            enabled = hasInternet,
+                            placeholder = { Text(if (isListening) "Listening..." else if(!hasInternet) "Waiting for connection..." else "Type message...", color = Color.Gray) },
+                            shape = RoundedCornerShape(24.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color(0xFF1E293B).copy(alpha = 0.5f),
+                                unfocusedContainerColor = Color(0xFF1E293B).copy(alpha = 0.5f),
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = Color(0xFF38BDF8)
+                            ),
+                            maxLines = 4
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(if (hasInternet) Color(0xFF38BDF8) else Color.DarkGray),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    hasInternet = isOnline(context)
+                                    if (hasInternet) {
+                                        if (currentInput.isNotBlank()) sendMessage()
+                                        else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    } else {
+                                        Toast.makeText(context, "Offline - Please connect to Wi-Fi", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = if (!hasInternet) Icons.Filled.MicOff else if (currentInput.isBlank()) Icons.Filled.Mic else Icons.Filled.Send,
+                                    contentDescription = "Send",
+                                    tint = Color.Black
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -271,18 +332,36 @@ fun AiAssistantScreen(
 
 @Composable
 fun ChatBubble(msg: ChatMessage) {
-    val alignment = if (msg.isUser) Alignment.CenterEnd else Alignment.CenterStart
-    val bgColor = if (msg.isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
-    val textColor = if (msg.isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+    val isUser = msg.isUser
+    val alignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
+
+    val bgColor = if (isUser) Color(0xFF38BDF8).copy(alpha = 0.2f) else Color(0xFF1E293B).copy(alpha = 0.6f)
+    val borderColor = if (isUser) Color(0xFF38BDF8).copy(alpha = 0.3f) else Color.Transparent
+    val textColor = if (isUser) Color.White else Color(0xFFE2E8F0)
 
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = alignment) {
-        Surface(color = bgColor, shape = RoundedCornerShape(16.dp), modifier = Modifier.widthIn(max = 280.dp)) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            color = bgColor,
+            shape = RoundedCornerShape(
+                topStart = 18.dp,
+                topEnd = 18.dp,
+                bottomStart = if (isUser) 18.dp else 4.dp,
+                bottomEnd = if (isUser) 4.dp else 18.dp
+            ),
+            modifier = Modifier.widthIn(max = 290.dp),
+            border = if (isUser) androidx.compose.foundation.BorderStroke(1.dp, borderColor) else null
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp).animateContentSize(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 if (msg.isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = textColor, strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color(0xFF38BDF8), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(text = msg.text, color = Color(0xFF38BDF8), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                } else {
+                    Text(text = msg.text, color = textColor, style = MaterialTheme.typography.bodyMedium, lineHeight = 22.sp)
                 }
-                Text(text = msg.text, color = textColor)
             }
         }
     }

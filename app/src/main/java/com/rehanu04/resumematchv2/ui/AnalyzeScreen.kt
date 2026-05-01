@@ -1,38 +1,70 @@
-﻿package com.rehanu04.resumematchv2.ui
+﻿@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
+package com.rehanu04.resumematchv2.ui
 
 import android.content.Context
 import android.content.Intent
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,6 +73,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -55,18 +88,14 @@ private const val PREVIEW_CHIP_LIMIT = 12
 // Models
 // -----------------------------
 private data class AnalyzeResult(
-    val score: Int,
-    val matchedCount: Int,
-    val missingCount: Int,
-    val matchedTop: List<String>,
-    val missingTop: List<String>,
-    val resumeTextLength: Int,
-    val resumeText: String? = null
+    val score: Int, val matchedCount: Int, val missingCount: Int,
+    val matchedTop: List<String>, val missingTop: List<String>,
+    val resumeTextLength: Int, val resumeText: String? = null
 )
 
-// -----------------------------
-// Known skills dictionary
-// -----------------------------
+data class ProactiveAnalyzeRequest(@SerializedName("vault_data") val vaultData: String, @SerializedName("job_description") val jobDescription: String)
+data class ProactiveAnalyzeResponse(@SerializedName("ats_score") val atsScore: Int, @SerializedName("missing_skills") val missingSkills: List<String>, @SerializedName("is_intervened") val isIntervened: Boolean, @SerializedName("agent_message") val agentMessage: String)
+
 private val KNOWN_SKILLS: Map<String, String> = linkedMapOf(
     "python" to "Python", "kotlin" to "Kotlin", "java" to "Java", "javascript" to "JavaScript",
     "typescript" to "TypeScript", "sql" to "SQL", "bash" to "Bash", "c" to "C", "cpp" to "C++",
@@ -144,9 +173,9 @@ private fun deriveAtsReadiness(resumeTextLength: Int, resumeText: String?, match
     val (likelihood, _) = estimateResumeLikelihood(resumeText, x, matchedCount, missingCount, fileName)
     var ats = base
     val warning: String? = when {
-        likelihood < 0.25f -> "This PDF doesn't look like a resume (low confidence). Please upload a resume PDF with sections like Skills/Experience/Education."
-        likelihood < 0.45f -> "Low resume confidence: results may be unreliable. Make sure you selected the correct resume PDF."
-        x < 500 -> "Low extractable text detected. If your resume is image/table heavy, export a text-based PDF for better ATS parsing."
+        likelihood < 0.25f -> "This PDF doesn't look like a resume. Please upload a resume PDF."
+        likelihood < 0.45f -> "Low resume confidence: results may be unreliable."
+        x < 500 -> "Low extractable text detected. Export a text-based PDF for better ATS parsing."
         else -> null
     }
     if (likelihood < 0.25f) ats = (minOf(ats, 40) * (0.55f + 0.45f * likelihood)).roundToInt()
@@ -162,29 +191,20 @@ private fun estimateResumeLikelihood(resumeText: String?, resumeTextLength: Int,
         val hasPhone = Regex("\\b(\\+?\\d{1,3}[- .]?)?(\\(?\\d{2,4}\\)?[- .]?)?\\d{3,4}[- .]?\\d{3,4}\\b").containsMatchIn(t)
         val hasLinkedIn = t.contains("linkedin.com") || t.contains("linkedin")
         val hasGithub = t.contains("github.com") || t.contains("github")
-        val headers = listOf("experience", "education", "skills", "projects", "summary", "certifications", "work experience")
+        val headers = listOf("experience", "education", "skills", "projects", "summary")
         val headerHits = headers.count { h -> Regex("\\b" + Regex.escape(h) + "\\b").containsMatchIn(t) }
         val bulletHits = Regex("(^|\\n)\\s*[•\\u2022\\-\\*]\\s+").findAll(t).take(10).count()
-        val speechMarkers = listOf("ladies and gentlemen", "good morning", "good evening", "thank you", "respected", "annual day", "speech")
-        val speechHit = speechMarkers.any { t.contains(it) }
-
         var score = 0.0f
         if (hasEmail) score += 0.25f; if (hasPhone) score += 0.20f; if (hasLinkedIn) score += 0.10f; if (hasGithub) score += 0.10f
-        score += (headerHits.coerceAtMost(4) * 0.10f); if (bulletHits >= 3) score += 0.10f; if (speechHit) score -= 0.45f
-        return score.coerceIn(0.0f, 1.0f) to (if (speechHit) "Speech-like wording detected." else null)
+        score += (headerHits.coerceAtMost(4) * 0.10f); if (bulletHits >= 3) score += 0.10f
+        return score.coerceIn(0.0f, 1.0f) to null
     }
-
     val denom = (matchedCount + missingCount).coerceAtLeast(1)
     val coverage = matchedCount.toFloat() / denom.toFloat()
     var likelihood = 0.60f
-    var reason: String? = null
-
-    if (resumeTextLength < 400) { likelihood = 0.20f; reason = "Very low extracted text." }
-    if (matchedCount <= 1 && missingCount >= 4 && coverage < 0.15f) { likelihood = minOf(likelihood, 0.25f); reason = "Very low JD overlap; possibly wrong document." }
-    else if (matchedCount <= 2 && coverage < 0.20f) { likelihood = minOf(likelihood, 0.40f); reason = "Low JD overlap." }
-    if (missingCount.toFloat() / denom.toFloat() > 0.70f && matchedCount <= 4 && coverage < 0.30f) { likelihood = minOf(likelihood, 0.30f); reason = "Very low JD overlap; possibly wrong document." }
-    if (!fileName.isNullOrBlank() && (fileName.lowercase().contains("speech") || fileName.lowercase().contains("annual") || fileName.lowercase().contains("event"))) { likelihood = minOf(likelihood, 0.20f); reason = "Filename suggests non-resume document." }
-    return likelihood.coerceIn(0.0f, 1.0f) to reason
+    if (resumeTextLength < 400) likelihood = 0.20f
+    if (matchedCount <= 1 && missingCount >= 4 && coverage < 0.15f) likelihood = minOf(likelihood, 0.25f)
+    return likelihood.coerceIn(0.0f, 1.0f) to null
 }
 
 private fun labelForScore(v: Int): String = when { v >= 80 -> "Strong"; v >= 60 -> "Good"; v >= 40 -> "Fair"; v >= 20 -> "Low"; else -> "Very Low" }
@@ -207,34 +227,16 @@ private fun normalizeUrl(s: String): String { val t = s.trim(); return when { t.
 private fun resolveJobDescriptionText(client: OkHttpClient, input: String): String {
     val trimmed = input.trim()
     if (trimmed.isBlank()) return ""
-
     if (!looksLikeUrl(trimmed)) return trimmed
-
     val url = normalizeUrl(trimmed)
+    if (url.contains("linkedin.com", ignoreCase = true)) throw IllegalStateException("Cannot access LinkedIn securely. Please copy and paste the job description text directly.")
 
-    if (url.contains("linkedin.com", ignoreCase = true)) {
-        throw IllegalStateException("Cannot access LinkedIn securely. Please copy and paste the job description text directly.")
-    }
-
-    val req = Request.Builder()
-        .url(url)
-        .get()
-        .addHeader("User-Agent", "ResumeMatchV2/1.0")
-        .build()
-
+    val req = Request.Builder().url(url).get().addHeader("User-Agent", "ResumeMatchV2/1.0").build()
     client.newCall(req).execute().use { resp ->
         val body = resp.body?.string()
-        if (!resp.isSuccessful || body.isNullOrBlank()) {
-            throw IllegalStateException("Could not fetch JD URL (HTTP ${resp.code}).")
-        }
-
+        if (!resp.isSuccessful || body.isNullOrBlank()) throw IllegalStateException("Could not fetch JD URL (HTTP ${resp.code}).")
         val ct = resp.header("Content-Type").orEmpty()
-        val extracted = if (ct.contains("text/html", ignoreCase = true)) {
-            htmlToReadableText(body)
-        } else {
-            body
-        }
-
+        val extracted = if (ct.contains("text/html", ignoreCase = true)) htmlToReadableText(body) else body
         return if (extracted.length < 200) body else extracted
     }
 }
@@ -242,24 +244,17 @@ private fun resolveJobDescriptionText(client: OkHttpClient, input: String): Stri
 private fun isLikelyJobDescription(text: String): Boolean {
     if (text.trim().length < 50) return true
     val t = text.lowercase()
-
-    val errorWords = listOf("exception", "build failed", "stacktrace", "compilation error", "gradlew", "execution failed")
-    val errorHits = errorWords.count { t.contains(it) }
-
-    val jdWords = listOf("experience", "requirement", "responsibility", "qualification", "skill", "apply", "role", "job", "salary", "team")
-    val jdHits = jdWords.count { t.contains(it) }
-
-    if (errorHits > 0 && jdHits < 2) return false
-    if (t.length > 200 && jdHits == 0) return false
-
+    val errorWords = listOf("exception", "build failed", "stacktrace", "compilation error")
+    val jdWords = listOf("experience", "requirement", "responsibility", "qualification", "skill", "role", "job")
+    if (errorWords.count { t.contains(it) } > 0 && jdWords.count { t.contains(it) } < 2) return false
     return true
 }
 
 private fun htmlToReadableText(html: String): String {
     var s = html
-    s = s.replace(Regex("(?is)<script.*?>.*?</script>"), " ").replace(Regex("(?is)<style.*?>.*?</style>"), " ").replace(Regex("(?is)"), " ")
-    s = s.replace(Regex("(?is)<br\\s*/?>"), "\n").replace(Regex("(?is)</p\\s*>"), "\n").replace(Regex("(?is)</div\\s*>"), "\n").replace(Regex("(?is)</li\\s*>"), "\n").replace(Regex("(?is)<li\\s*>"), " • ").replace(Regex("(?is)<[^>]+>"), " ")
-    return s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace(Regex("[\\t\\r]+"), " ").replace(Regex("\\s+"), " ").trim()
+    s = s.replace(Regex("(?is)<script.*?>.*?</script>"), " ").replace(Regex("(?is)<style.*?>.*?</style>"), " ")
+    s = s.replace(Regex("(?is)<br\\s*/?>"), "\n").replace(Regex("(?is)</p\\s*>"), "\n").replace(Regex("(?is)</li\\s*>"), "\n").replace(Regex("(?is)<li\\s*>"), " • ").replace(Regex("(?is)<[^>]+>"), " ")
+    return s.replace("&nbsp;", " ").replace(Regex("[\\t\\r]+"), " ").replace(Regex("\\s+"), " ").trim()
 }
 
 private fun getDisplayName(context: Context, uri: Uri): String? {
@@ -309,29 +304,12 @@ private fun extractSkillsGlobal(text: String): Set<String> {
     val found = LinkedHashSet<String>()
     val dictKeys = KNOWN_SKILLS.keys.sortedByDescending { it.length }
 
-    fun containsPhrase(phrase: String): Boolean {
-        val parts = phrase.split(" ").filter { it.isNotBlank() }.map { Regex.escape(it) }
-        return Regex("\\b" + parts.joinToString("\\s+") + "\\b", RegexOption.IGNORE_CASE).containsMatchIn(lowered)
-    }
-
     for (k in dictKeys) {
         val canonical = canonicalize(k)
         if (canonical.isBlank()) continue
         if (k == "ci/cd") { if (lowered.contains("ci/cd") || lowered.contains("ci cd") || lowered.contains("cicd")) found.add("ci/cd"); continue }
-        if (k == "node.js") { if (lowered.contains("node.js") || lowered.contains("nodejs") || containsPhrase("node js")) found.add("node.js"); continue }
-        if (containsPhrase(k)) found.add(canonical)
-        val collapsed = k.replace(" ", ""); if (collapsed != k && lowered.replace(" ", "").contains(collapsed)) found.add(canonical)
-    }
-
-    val tokenRegex = Regex("""[A-Za-z][A-Za-z0-9\+\#\./]{1,}""")
-    tokenRegex.findAll(norm).map { it.value }.toList().forEach { t ->
-        val s = t.trim(); if (s.length < 2) return@forEach
-        val low = s.lowercase()
-        if (low in STOPWORDS || low.all { it.isDigit() }) return@forEach
-        if (low.length <= 3 && low !in setOf("ai","ml","sql","aws","gcp","api","ui")) return@forEach
-        val isValid = s.contains("+") || s.contains("#") || s.contains("/") || s.contains(".") || (s.length in 2..6 && s.all { it.isUpperCase() }) || (s.any { it.isUpperCase() } && s.any { it.isLowerCase() }) || low in KNOWN_SKILLS.keys
-        if (!isValid) return@forEach
-        val c = canonicalize(t); if (c.isNotBlank() && c !in STOPWORDS) found.add(c)
+        if (k == "node.js") { if (lowered.contains("node.js") || lowered.contains("nodejs")) found.add("node.js"); continue }
+        if (Regex("\\b" + Regex.escape(k) + "\\b", RegexOption.IGNORE_CASE).containsMatchIn(lowered)) found.add(canonical)
     }
 
     val words = lowered.replace(Regex("[^a-z0-9+/# ]"), " ").replace(Regex("\\s+"), " ").trim().split(" ").filter { it.isNotBlank() }
@@ -340,21 +318,14 @@ private fun extractSkillsGlobal(text: String): Set<String> {
         if (i + 1 < valid.size) {
             val bi = "${valid[i]} ${valid[i + 1]}"; val c = canonicalize(bi)
             if (c in KNOWN_SKILLS.keys) found.add(c)
-            if (bi in setOf("machine learning", "deep learning", "distributed systems", "system design", "data structures")) found.add(c)
         }
-        if (i + 2 < valid.size) { val tri = "${valid[i]} ${valid[i + 1]} ${valid[i + 2]}"; val c = canonicalize(tri); if (c in KNOWN_SKILLS.keys) found.add(c) }
     }
-
-    if (Regex("(?<![a-z0-9])c\\+\\+(?![a-z0-9])", RegexOption.IGNORE_CASE).containsMatchIn(norm)) found.add("cpp")
-    if (Regex("(?<![a-z0-9])c#(?![a-z0-9])", RegexOption.IGNORE_CASE).containsMatchIn(norm)) found.add("csharp")
-    if (Regex("\\bai/ml\\b", RegexOption.IGNORE_CASE).containsMatchIn(norm)) found.add("ai/ml")
-
     return found.map { canonicalize(it) }.filter { isValidSkillCandidate(it) }.toLinkedHashSet()
 }
 
 private fun <T> Iterable<T>.toLinkedHashSet(): LinkedHashSet<T> { val s = LinkedHashSet<T>(); for (x in this) s.add(x); return s }
 
-private val SKILL_PRIORITY: Map<String, Int> = run { val ordered = listOf("python", "fastapi", "uvicorn", "rest", "swagger openapi", "okhttp", "http", "regex", "pypdf", "docker", "render", "postman", "multipart", "async", "concurrency", "normalization", "android", "coroutines"); ordered.withIndex().associate { it.value to it.index } }
+private val SKILL_PRIORITY: Map<String, Int> = run { val ordered = listOf("python", "fastapi", "uvicorn", "rest", "swagger openapi", "okhttp", "docker", "render", "postman", "android", "coroutines"); ordered.withIndex().associate { it.value to it.index } }
 private fun skillPriority(canonical: String): Int = SKILL_PRIORITY[canonical.trim().lowercase()] ?: 10_000
 
 private fun applyInference(matched: MutableSet<String>, missing: Set<String>) {
@@ -362,10 +333,7 @@ private fun applyInference(matched: MutableSet<String>, missing: Set<String>) {
     val m = matched.map { it.lowercase() }.toSet()
     if ("fastapi" in m || "uvicorn" in m) addIfOk("python")
     if ("openapi" in m || "swagger" in m) addIfOk("swagger openapi")
-    if ("okhttp" in m) addIfOk("http")
     if ("coroutines" in m) { addIfOk("async"); addIfOk("concurrency") }
-    if ("async" in m) addIfOk("concurrency")
-    if ("rest apis" in m) addIfOk("rest")
 }
 
 private enum class Bucket { LANG, API, ANDROID, CLOUD, AIML, SYSTEMS, OTHER }
@@ -373,30 +341,23 @@ private fun bucketOf(s: String): Bucket {
     val low = s.lowercase()
     return when {
         low in listOf("python","java","kotlin","c","cpp","csharp","sql","javascript","typescript","go","rust","bash") -> Bucket.LANG
-        low.contains("fastapi") || low.contains("uvicorn") || low.contains("rest") || low.contains("openapi") || low.contains("swagger") || low.contains("grpc") || low.contains("http") -> Bucket.API
+        low.contains("fastapi") || low.contains("uvicorn") || low.contains("rest") || low.contains("openapi") || low.contains("http") -> Bucket.API
         low.contains("jetpack") || low.contains("compose") || low.contains("retrofit") || low.contains("okhttp") || low.contains("coroutines") -> Bucket.ANDROID
-        low.contains("docker") || low.contains("kubernetes") || low.contains("terraform") || low.contains("aws") || low.contains("gcp") || low.contains("google cloud") || low.contains("azure") || low.contains("linux") || low.contains("ci/cd") -> Bucket.CLOUD
-        low.contains("machine learning") || low == "ai" || low == "ml" || low.contains("ai/ml") || low.contains("nlp") -> Bucket.AIML
-        low.contains("distributed") || low.contains("system design") || low.contains("data structures") || low.contains("algorithms") || low.contains("multithread") || low.contains("virtual") -> Bucket.SYSTEMS
+        low.contains("docker") || low.contains("kubernetes") || low.contains("aws") || low.contains("gcp") || low.contains("azure") || low.contains("ci/cd") -> Bucket.CLOUD
+        low.contains("machine learning") || low == "ai" || low == "ml" || low.contains("ai/ml") -> Bucket.AIML
+        low.contains("distributed") || low.contains("system design") || low.contains("data structures") -> Bucket.SYSTEMS
         else -> Bucket.OTHER
     }
 }
 
+private fun bucketLabel(b: Bucket): String = when (b) { Bucket.LANG -> "Languages"; Bucket.API -> "Backend / APIs"; Bucket.ANDROID -> "Android"; Bucket.CLOUD -> "Cloud / DevOps"; Bucket.AIML -> "AI/ML"; Bucket.SYSTEMS -> "Systems"; Bucket.OTHER -> "Other" }
+
 private fun buildStrongSuggestions(jobScore: Int, atsScore: Int, matched: List<String>, missing: List<String>): List<String> {
-    val out = mutableListOf<String>(); val js = jobScore.coerceIn(0, 100); val ats = atsScore.coerceIn(0, 100)
-    out.add("Tailor your Summary to the JD: target role + 2 strengths + 3 JD keywords (exact wording).")
-    if (js < 40) { out.add("Job match is low: add 2 JD-aligned bullets in Projects/Experience that explicitly mention the top missing skills + results (numbers)."); out.add("Move relevance up: put a dedicated Skills section directly below Summary. Don’t hide keywords in the bottom.") } else if (js < 70) { out.add("Job match is mid: improve keyword coverage naturally—ensure JD skills appear in Summary + Skills + at least 2 project bullets.") } else { out.add("Job match is strong: focus on proof—add metrics (latency, cost, users, accuracy) for the bullets that mention matched skills.") }
-    if (missing.isNotEmpty()) {
-        val topMissing = missing.take(12); val grouped = topMissing.groupBy { bucketOf(it) }
-        grouped[Bucket.LANG]?.takeIf { it.isNotEmpty() }?.let { out.add("Languages gap: prove with 1 bullet per language (e.g., “Built X in ${it.take(3).joinToString(", ")}”).") }
-        grouped[Bucket.API]?.takeIf { it.isNotEmpty() }?.let { out.add("Backend/API gap: add 1 bullet showing endpoint design + auth/error handling + OpenAPI docs (${it.take(4).joinToString(", ")}).") }
-        grouped[Bucket.CLOUD]?.takeIf { it.isNotEmpty() }?.let { out.add("Cloud/DevOps gap: add a deployment bullet (Docker + platform) and mention monitoring/timeouts/retries if applicable (${it.take(4).joinToString(", ")}).") }
-        grouped[Bucket.SYSTEMS]?.takeIf { it.isNotEmpty() }?.let { out.add("Systems gap: add a bullet about scalability/concurrency/perf (throughput, time saved, latency reduced) (${it.take(3).joinToString(", ")}).") }
-        grouped[Bucket.AIML]?.takeIf { it.isNotEmpty() }?.let { out.add("AI/ML gap: include 1 credible ML bullet (dataset size + metric + model type). Don’t claim frameworks you haven’t used.") }
-        out.add("Top missing skills to address first: ${topMissing.take(6).joinToString(", ")}.")
-    } else { out.add("Missing skills list is empty: validate by ensuring your resume explicitly names the same skills as the JD (ATS keyword matching).") }
-    if (ats < 60) { out.add("ATS is weak: use standard headings (Summary, Skills, Experience, Projects, Education). Avoid tables/columns/images.") } else if (ats < 80) { out.add("ATS is okay: keep formatting simple and consistent. Ensure dates/roles are clearly readable.") } else { out.add("ATS is strong: keep formatting simple; now prioritize relevance + proof mapped directly to JD.") }
-    out.add("Checklist: (1) Summary has 3 JD keywords, (2) Skills section has top 8–12 relevant skills, (3) 2 bullets prove those skills with metrics.")
+    val out = mutableListOf<String>()
+    out.add("Tailor your Summary to the JD: target role + 2 strengths + 3 JD keywords.")
+    if (jobScore < 40) out.add("Job match is low: add 2 JD-aligned bullets in Projects/Experience explicitly mentioning top missing skills.")
+    if (missing.isNotEmpty()) out.add("Top missing skills to address first: ${missing.take(6).joinToString(", ")}.")
+    out.add("Checklist: (1) Summary has 3 JD keywords, (2) Skills section has top relevant skills, (3) 2 bullets prove those skills with metrics.")
     return out.distinct()
 }
 
@@ -408,6 +369,7 @@ private fun buildStrongSuggestions(jobScore: Int, atsScore: Int, matched: List<S
 fun AnalyzeScreen(
     isDark: Boolean,
     onToggleTheme: (Boolean) -> Unit,
+    onBack: () -> Unit,
     onGoCreate: () -> Unit,
     onGoProfile: () -> Unit,
     apiBaseUrl: String,
@@ -416,9 +378,18 @@ fun AnalyzeScreen(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val scroll = rememberScrollState()
+    val scrollState = rememberScrollState()
+
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as android.app.Activity).window
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !isDark
+        }
+    }
 
     val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = com.rehanu04.resumematchv2.data.UserProfile())
+    val vaultData = remember(userProfile) { "Skills: ${userProfile.savedSkillsJson}\nExperience: ${userProfile.savedExperienceJson}\nProjects: ${userProfile.savedProjectsJson}" }
 
     var jdInput by rememberSaveable { mutableStateOf("") }
     var selectedPdfUri by rememberSaveable { mutableStateOf<Uri?>(null) }
@@ -428,7 +399,10 @@ fun AnalyzeScreen(
     var rawJson by remember { mutableStateOf<String?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
+    var proactiveLoading by remember { mutableStateOf(false) }
+    var proactiveResult by remember { mutableStateOf<ProactiveAnalyzeResponse?>(null) }
     var jobAnalyzed by rememberSaveable { mutableStateOf(false) }
+
     var jobSkillsAfterClick by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var jobSkillKeysAfterClick by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var lastEffectiveJdText by rememberSaveable { mutableStateOf<String?>(null) }
@@ -438,235 +412,586 @@ fun AnalyzeScreen(
     }
 
     val jdText = jdInput.trim()
+    fun buttonEnabled(): Boolean = !loading && !proactiveLoading && jdText.isNotBlank() && apiBaseUrl.isNotBlank()
 
-    fun buttonLabel(): String = when { jdText.isBlank() -> "Enter JD to analyze"; selectedPdfUri == null -> "Analyze Job"; else -> "Analyze Match" }
+    // --- MONOCHROME THEME COLORS ---
+    val bgColor = if (isDark) Color(0xFF030303) else Color(0xFFF8FAFC)
+    val textColor = if (isDark) Color.White else Color(0xFF0F172A)
 
-    fun buttonEnabled(): Boolean = when {
-        loading -> false
-        jdText.isBlank() -> false
-        selectedPdfUri == null -> true
-        else -> apiBaseUrl.isNotBlank()
+    val animatedCoreColor by animateColorAsState(targetValue = if (isDark) Color.White else Color.Black, animationSpec = tween(800))
+    val animatedCardBgColor by animateColorAsState(
+        targetValue = if (isDark) Color(0xFF18181B) else Color(0xFFFFFFFF),
+        animationSpec = tween(800)
+    )
+    val cardTextColor = if (isDark) Color.White else Color.Black
+    val cardSubTextColor = if (isDark) Color.LightGray else Color.DarkGray
+
+    val primaryBtnBg = if (isDark) Color(0xFF222222) else Color(0xFFE2E8F0)
+    val primaryBtnText = if (isDark) Color.White else Color.Black
+
+    fun runProactiveAnalyze() {
+        errorText = null; proactiveResult = null; rawJson = null; jobAnalyzed = false
+        if (jdText.isBlank()) return
+        proactiveLoading = true
+
+        scope.launch {
+            try {
+                val client = OkHttpClient.Builder().connectTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+                val requestObj = ProactiveAnalyzeRequest(vaultData, jdText)
+                val body = Gson().toJson(requestObj).toRequestBody("application/json".toMediaType())
+
+                val reqBuilder = Request.Builder().url(apiBaseUrl.trimEnd('/') + "/v1/ai/analyze-proactive").post(body)
+                if (apiAppKey.isNotBlank()) reqBuilder.addHeader("x-app-key", apiAppKey)
+
+                val response = withContext(Dispatchers.IO) { client.newCall(reqBuilder.build()).execute() }
+                val responseBody = response.body?.string()
+
+                if (response.isSuccessful && responseBody != null) {
+                    proactiveResult = Gson().fromJson(responseBody, ProactiveAnalyzeResponse::class.java)
+                } else errorText = "Analysis Failed: HTTP ${response.code}\n${responseBody ?: ""}"
+            } catch (e: Exception) { errorText = "Network Error: ${e.message}" } finally { proactiveLoading = false }
+        }
     }
 
     fun runAnalyze() {
-        errorText = null; rawJson = null; jobAnalyzed = false
+        errorText = null; rawJson = null; jobAnalyzed = false; proactiveResult = null
         if (jdText.isBlank()) return
         loading = true
 
         scope.launch {
             try {
-                // ✨ FIX: Increased timeouts to 60 seconds to prevent "timeout" error
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(60, TimeUnit.SECONDS)
-                    .writeTimeout(60, TimeUnit.SECONDS)
-                    .readTimeout(60, TimeUnit.SECONDS)
-                    .build()
-
+                val client = OkHttpClient.Builder().connectTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
                 val effectiveJd = withContext(Dispatchers.IO) { resolveJobDescriptionText(client, jdText) }
                 lastEffectiveJdText = effectiveJd
 
                 if (!isLikelyJobDescription(effectiveJd)) {
-                    errorText = "The provided text does not look like a Job Description (e.g., build errors or junk). Please paste a valid JD."
-                    loading = false
-                    return@launch
+                    errorText = "The provided text does not look like a Job Description. Please paste a valid JD."
+                    loading = false; return@launch
                 }
-
-                lastEffectiveJdText = effectiveJd
 
                 val uri = selectedPdfUri
                 if (uri == null) {
                     val jdKeys = extractSkillsGlobal(effectiveJd).asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>())
                     jobSkillKeysAfterClick = jdKeys.toList()
                     jobSkillsAfterClick = jdKeys.toList().sortedWith(compareBy({ skillPriority(it) }, { it })).map { prettySkill(it) }.distinctBy { it.lowercase() }.take(MAX_MATCHED_CHIPS)
-                    jobAnalyzed = true
-                    loading = false
-                    return@launch
+                    jobAnalyzed = true; loading = false; return@launch
                 }
-
-                if (apiBaseUrl.isBlank()) { errorText = "Missing API base URL."; loading = false; return@launch }
 
                 val tmp = copyContentUriToTempFile(ctx, uri)
                 val body = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("resume", tmp.name, tmp.asRequestBody("application/pdf".toMediaType())).addFormDataPart("jd_text", effectiveJd).addFormDataPart("debug", "true").build()
 
                 val reqBuilder = Request.Builder().url(apiBaseUrl.trimEnd('/') + "/v1/analyze/pdf").post(body)
-                if (apiAppKey.isNotBlank()) {
-                    reqBuilder.addHeader("x-app-key", apiAppKey)
-                }
-                val req = reqBuilder.build()
+                if (apiAppKey.isNotBlank()) reqBuilder.addHeader("x-app-key", apiAppKey)
 
-                val resp = withContext(Dispatchers.IO) { client.newCall(req).execute() }
+                val resp = withContext(Dispatchers.IO) { client.newCall(reqBuilder.build()).execute() }
                 val txt = resp.body?.string()
 
-                if (!resp.isSuccessful || txt == null) errorText = "HTTP ${resp.code}: ${txt ?: "No response body"}" else rawJson = txt
+                if (!resp.isSuccessful || txt == null) errorText = "HTTP ${resp.code}: ${txt ?: "No response"}" else rawJson = txt
             } catch (e: Exception) { errorText = e.message ?: "Unknown error" } finally { loading = false }
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("ResumeMatch", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            IconButton(onClick = onGoProfile) { Icon(Icons.Filled.Person, contentDescription = "AI Profile") }
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f), tonalElevation = 0.dp) {
-                IconButton(onClick = { onToggleTheme(!isDark) }) { Icon(imageVector = if (isDark) Icons.Default.WbSunny else Icons.Default.DarkMode, contentDescription = "Toggle theme") }
-            }
-        }
+    // --- MAIN UI WRAPPER ---
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor) // Base color for the entire app
+    ) {
+        // LAYER 1: The Canvas is perfectly behind everything
+        DiagonalFlowingLinesCanvas(isDark = isDark)
 
+        // LAYER 2: Main Layout
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 18.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.fillMaxSize().statusBarsPadding()
         ) {
-            if (!userProfile.isComplete) {
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth().clickable { onGoProfile() },
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            // THE GLASS HEADER (Transparent)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 80.dp, top = 16.dp, bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textColor) }
+                Text("Analyze", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = textColor, modifier = Modifier.weight(1f).padding(start = 4.dp))
+                IconButton(onClick = onGoProfile) { Icon(Icons.Filled.Person, contentDescription = "AI Profile", tint = textColor) }
+            }
+
+            // THE SCROLLABLE AREA (Clipped perfectly at the top edge)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clipToBounds()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 20.dp)
+                        .verticalScroll(scrollState),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Info, contentDescription = "Info", tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text("Set up your AI Profile", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Text("Tap here to save your details so the AI Assistant knows who you are.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (!userProfile.isComplete) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().clickable { onGoProfile() },
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = animatedCardBgColor),
+                            border = BorderStroke(1.dp, animatedCoreColor.copy(alpha = 0.2f))
+                        ) {
+                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.Info, contentDescription = "Info", tint = animatedCoreColor)
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text("Set up your AI Profile", fontWeight = FontWeight.Bold, color = cardTextColor)
+                                    Text("Tap here to save your details to the Master Vault.", style = MaterialTheme.typography.bodySmall, color = cardSubTextColor)
+                                }
+                            }
                         }
                     }
-                }
-            }
 
-            ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Resume (PDF)", style = MaterialTheme.typography.titleMedium)
-                    Button(onClick = { pickPdf.launch(arrayOf("application/pdf")) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(999.dp)) { Text(if (selectedPdfUri == null) "Select PDF" else "Change PDF") }
-                    Text(text = "Selected: ${selectedPdfName ?: "None"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (selectedPdfUri != null) { TextButton(onClick = { selectedPdfUri = null; selectedPdfName = null; rawJson = null; errorText = null }) { Text("Clear selected PDF") } }
-                }
-            }
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Job description", style = MaterialTheme.typography.titleMedium)
-                    OutlinedTextField(value = jdInput, onValueChange = { jdInput = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 240.dp), placeholder = { Text("Paste JD URL or JD text") }, singleLine = false, maxLines = 12)
-                    Text("Tip: paste Requirements + Responsibilities for best results.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-
-            Button(onClick = { runAnalyze() }, enabled = buttonEnabled(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(999.dp)) { Text(if (loading) "Analyzing..." else buttonLabel()) }
-            TextButton(onClick = onGoCreate, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Don’t have a resume? Create one tailored for this job →") }
-
-            if (errorText != null) {
-                ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f))) {
-                    Column(modifier = Modifier.padding(16.dp)) { Text("Error", fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(6.dp)); Text(errorText ?: "") }
-                }
-            }
-
-            if (selectedPdfUri == null && jobAnalyzed && jdText.isNotBlank()) {
-                JobOnlyResultsCard(isDark = isDark, skills = jobSkillsAfterClick)
-                JobOnlySuggestionsCard(skills = jobSkillsAfterClick)
-            }
-
-            val parsed = remember(rawJson) { rawJson?.let { runCatching { parseAnalyzeJson(it) }.getOrNull() } }
-
-            if (parsed != null) {
-                val jobMatch = clamp0to100(parsed.score)
-                val (ats, resumeWarn) = deriveAtsReadiness(parsed.resumeTextLength, parsed.resumeText, parsed.matchedCount, parsed.missingCount, selectedPdfName)
-                val resumeLikelihood = estimateResumeLikelihood(parsed.resumeText, parsed.resumeTextLength, parsed.matchedCount, parsed.missingCount, selectedPdfName).first
-
-                val effectiveJdUsed = (lastEffectiveJdText ?: jdText).trim()
-                val jdKeysUsed = if (jobSkillKeysAfterClick.isNotEmpty()) {
-                    jobSkillKeysAfterClick.asSequence().map { canonicalize(it) }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>())
-                } else {
-                    extractSkillsGlobal(effectiveJdUsed).asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>())
-                }
-
-                val backendMatchedKeys = parsed.matchedTop.asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>())
-                val backendMissingKeys = parsed.missingTop.asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>())
-
-                val missingTarget = parsed.missingCount.coerceAtLeast(0)
-                val missingFromBackend = LinkedHashSet<String>(backendMissingKeys)
-
-                val missingDesiredSize = when {
-                    parsed.missingTop.isNotEmpty() && backendMissingKeys.isEmpty() -> 0
-                    else -> maxOf(missingTarget, backendMissingKeys.size)
-                }
-
-                val resumeEvidenceKeys = LinkedHashSet<String>().apply {
-                    addAll(backendMatchedKeys)
-                    if (!parsed.resumeText.isNullOrBlank()) {
-                        val extra = extractSkillsGlobal(parsed.resumeText).asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>())
-                        addAll(extra)
-                    }
-                }
-
-                val derivedMissingCandidates: List<String> = if (resumeEvidenceKeys.isNotEmpty()) { jdKeysUsed.filter { it !in resumeEvidenceKeys } } else { jdKeysUsed.filter { it !in backendMatchedKeys } }
-
-                val finalMissingKeys: LinkedHashSet<String> = LinkedHashSet<String>().apply {
-                    addAll(backendMissingKeys)
-                    if (missingDesiredSize > 0) {
-                        for (k in derivedMissingCandidates) { if (size >= missingDesiredSize) break; add(k) }
-                        if (size < missingDesiredSize) {
-                            for (k in jdKeysUsed) { if (size >= missingDesiredSize) break; if (k !in backendMatchedKeys) add(k) }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = animatedCardBgColor),
+                        border = BorderStroke(1.dp, animatedCoreColor.copy(alpha = 0.2f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Resume (PDF)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cardTextColor)
+                            Button(
+                                onClick = { pickPdf.launch(arrayOf("application/pdf")) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(999.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = primaryBtnBg)
+                            ) { Text(if (selectedPdfUri == null) "Select PDF" else "Change PDF", color = primaryBtnText, fontWeight = FontWeight.Bold) }
+                            Text(text = "Selected: ${selectedPdfName ?: "None"}", style = MaterialTheme.typography.bodySmall, color = cardSubTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (selectedPdfUri != null) {
+                                TextButton(onClick = { selectedPdfUri = null; selectedPdfName = null; rawJson = null; errorText = null; proactiveResult = null }) { Text("Clear selected PDF", color = animatedCoreColor) }
+                            }
                         }
                     }
-                }
 
-                val finalMatchedKeys = LinkedHashSet<String>().apply {
-                    for (k in jdKeysUsed) if (k !in finalMissingKeys) add(k)
-                    if (jdKeysUsed.isEmpty()) { addAll(backendMatchedKeys) } else { for (k in backendMatchedKeys) if (k in jdKeysUsed) add(k) }
-                }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = animatedCardBgColor),
+                        border = BorderStroke(1.dp, animatedCoreColor.copy(alpha = 0.2f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Job description", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cardTextColor)
+                            OutlinedTextField(
+                                value = jdInput, onValueChange = { jdInput = it },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 240.dp),
+                                placeholder = { Text("Paste JD URL or JD text", color = Color.Gray) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedBorderColor = animatedCoreColor,
+                                    unfocusedBorderColor = animatedCoreColor.copy(alpha = 0.3f),
+                                    focusedTextColor = cardTextColor
+                                )
+                            )
+                        }
+                    }
 
-                applyInference(finalMatchedKeys, missingFromBackend)
+                    // TINY SHOOTING STAR BUTTON 1
+                    Button(
+                        onClick = { runProactiveAnalyze() },
+                        enabled = buttonEnabled(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glowingBorderTrail(proactiveLoading, animatedCoreColor),
+                        shape = RoundedCornerShape(999.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primaryBtnBg,
+                            disabledContainerColor = primaryBtnBg.copy(alpha = 0.5f)
+                        ),
+                        border = BorderStroke(1.dp, animatedCoreColor.copy(alpha = 0.3f))
+                    ) {
+                        if (proactiveLoading) {
+                            Text("Agent Analyzing", color = primaryBtnText, fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Filled.AutoAwesome, null, modifier = Modifier.size(18.dp), tint = primaryBtnText)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Proactive Analyze Vault", color = primaryBtnText, fontWeight = FontWeight.Bold)
+                        }
+                    }
 
-                for (k in finalMatchedKeys) { if (k !in missingFromBackend) finalMissingKeys.remove(k) }
+                    // TINY SHOOTING STAR BUTTON 2
+                    Button(
+                        onClick = { runAnalyze() },
+                        enabled = buttonEnabled() && !proactiveLoading,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glowingBorderTrail(loading, animatedCoreColor),
+                        shape = RoundedCornerShape(999.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primaryBtnBg,
+                            disabledContainerColor = primaryBtnBg.copy(alpha = 0.5f)
+                        ),
+                        border = BorderStroke(1.dp, animatedCoreColor.copy(alpha = 0.3f))
+                    ) {
+                        if (loading) {
+                            Text("Analyzing PDF", color = primaryBtnText, fontWeight = FontWeight.Bold)
+                        } else {
+                            Text(if (selectedPdfUri == null) "Analyze Job" else "Analyze PDF Match", color = primaryBtnText, fontWeight = FontWeight.Bold)
+                        }
+                    }
 
-                val matched = finalMatchedKeys.toList().sortedWith(compareBy({ skillPriority(it) }, { it })).map { prettySkill(it) }.distinctBy { it.lowercase() }.take(MAX_MATCHED_CHIPS)
-                val missing = finalMissingKeys.toList().sortedWith(compareBy({ skillPriority(it) }, { it })).map { prettySkill(it) }.distinctBy { it.lowercase() }.take(MAX_MISSING_CHIPS)
+                    TextButton(onClick = onGoCreate, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Don’t have a resume? Create one tailored for this job →", color = cardSubTextColor) }
 
-                ResultsCard(isDark = isDark, atsScore = ats, jobScore = jobMatch, resumeWarning = resumeWarn, resumeLikelihood = resumeLikelihood, jdTotalCount = jdKeysUsed.size, matchedCount = parsed.matchedCount, missingCount = parsed.missingCount, matchedTopCount = parsed.matchedTop.size, missingTopCount = parsed.missingTop.size, matched = matched, missing = missing)
-                SuggestionsCard(jobScore = jobMatch, atsScore = ats, matched = matched, missing = missing)
-            } else if (rawJson != null) {
-                val maybeErr = runCatching { JSONObject(rawJson!!).optString("detail") }.getOrNull()
-                ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))) {
-                    Column(modifier = Modifier.padding(16.dp)) { Text("Response received", fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(8.dp)); Text(text = if (!maybeErr.isNullOrBlank()) "Backend error: $maybeErr" else "Could not parse the backend response into match fields.", style = MaterialTheme.typography.bodyMedium) }
+                    if (errorText != null) {
+                        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF4A1010).copy(alpha = 0.8f))) {
+                            Column(modifier = Modifier.padding(16.dp)) { Text("Error", fontWeight = FontWeight.Bold, color = Color.White); Spacer(Modifier.height(6.dp)); Text(errorText ?: "", color = Color.White) }
+                        }
+                    }
+
+                    if (proactiveResult != null) {
+                        val result = proactiveResult!!
+                        AnimatedVisibility(visible = result.isIntervened, enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn()) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF4A1010).copy(alpha = 0.8f))
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = "AI Agent", tint = Color(0xFFEF4444))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Agent Intervention", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                                    }
+                                    Text(result.agentMessage, style = MaterialTheme.typography.bodyLarge, color = Color.White, modifier = Modifier.padding(bottom = 16.dp))
+                                    Button(onClick = onGoProfile, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))) {
+                                        Text("Update Master Vault Now", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = animatedCardBgColor),
+                            border = BorderStroke(1.dp, animatedCoreColor.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "Vault ATS Score: ${result.atsScore}%",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (result.atsScore >= 70) animatedCoreColor else Color(0xFFEF4444)
+                                )
+                                if (result.missingSkills.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text("Missing Skills:", fontWeight = FontWeight.Bold, color = cardSubTextColor)
+                                    result.missingSkills.forEach { skill -> Text("• $skill", style = MaterialTheme.typography.bodyMedium, color = cardTextColor) }
+                                }
+                            }
+                        }
+                    }
+
+                    if (selectedPdfUri == null && jobAnalyzed && jdText.isNotBlank()) {
+                        JobOnlyResultsCard(skills = jobSkillsAfterClick, coreColor = animatedCoreColor, cardBgColor = animatedCardBgColor, cardTextColor = cardTextColor, cardSubTextColor = cardSubTextColor)
+                        JobOnlySuggestionsCard(skills = jobSkillsAfterClick, coreColor = animatedCoreColor, cardBgColor = animatedCardBgColor, cardTextColor = cardTextColor, cardSubTextColor = cardSubTextColor)
+                    }
+
+                    val parsed = remember(rawJson) { rawJson?.let { runCatching { parseAnalyzeJson(it) }.getOrNull() } }
+
+                    if (parsed != null) {
+                        val jobMatch = clamp0to100(parsed.score)
+                        val (ats, resumeWarn) = deriveAtsReadiness(parsed.resumeTextLength, parsed.resumeText, parsed.matchedCount, parsed.missingCount, selectedPdfName)
+                        val resumeLikelihood = estimateResumeLikelihood(parsed.resumeText, parsed.resumeTextLength, parsed.matchedCount, parsed.missingCount, selectedPdfName).first
+                        val effectiveJdUsed = (lastEffectiveJdText ?: jdText).trim()
+                        val jdKeysUsed = if (jobSkillKeysAfterClick.isNotEmpty()) { jobSkillKeysAfterClick.asSequence().map { canonicalize(it) }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>()) } else { extractSkillsGlobal(effectiveJdUsed).asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>()) }
+                        val backendMatchedKeys = parsed.matchedTop.asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>())
+                        val backendMissingKeys = parsed.missingTop.asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>())
+                        val missingTarget = parsed.missingCount.coerceAtLeast(0)
+                        val missingFromBackend = LinkedHashSet<String>(backendMissingKeys)
+                        val missingDesiredSize = when { parsed.missingTop.isNotEmpty() && backendMissingKeys.isEmpty() -> 0 else -> maxOf(missingTarget, backendMissingKeys.size) }
+                        val resumeEvidenceKeys = LinkedHashSet<String>().apply { addAll(backendMatchedKeys); if (!parsed.resumeText.isNullOrBlank()) { val extra = extractSkillsGlobal(parsed.resumeText).asSequence().map { canonicalize(it) }.flatMap { expandCompositeSkills(it).asSequence() }.filter { isValidSkillCandidate(it) }.toCollection(LinkedHashSet<String>()); addAll(extra) } }
+                        val derivedMissingCandidates: List<String> = if (resumeEvidenceKeys.isNotEmpty()) { jdKeysUsed.filter { it !in resumeEvidenceKeys } } else { jdKeysUsed.filter { it !in backendMatchedKeys } }
+                        val finalMissingKeys: LinkedHashSet<String> = LinkedHashSet<String>().apply { addAll(backendMissingKeys); if (missingDesiredSize > 0) { for (k in derivedMissingCandidates) { if (size >= missingDesiredSize) break; add(k) }; if (size < missingDesiredSize) { for (k in jdKeysUsed) { if (size >= missingDesiredSize) break; if (k !in backendMatchedKeys) add(k) } } } }
+                        val finalMatchedKeys = LinkedHashSet<String>().apply { for (k in jdKeysUsed) if (k !in finalMissingKeys) add(k); if (jdKeysUsed.isEmpty()) { addAll(backendMatchedKeys) } else { for (k in backendMatchedKeys) if (k in jdKeysUsed) add(k) } }
+                        applyInference(finalMatchedKeys, missingFromBackend)
+                        for (k in finalMatchedKeys) { if (k !in missingFromBackend) finalMissingKeys.remove(k) }
+                        val matched = finalMatchedKeys.toList().sortedWith(compareBy({ skillPriority(it) }, { it })).map { prettySkill(it) }.distinctBy { it.lowercase() }.take(MAX_MATCHED_CHIPS)
+                        val missing = finalMissingKeys.toList().sortedWith(compareBy({ skillPriority(it) }, { it })).map { prettySkill(it) }.distinctBy { it.lowercase() }.take(MAX_MISSING_CHIPS)
+
+                        ResultsCard(atsScore = ats, jobScore = jobMatch, resumeWarning = resumeWarn, resumeLikelihood = resumeLikelihood, jdTotalCount = jdKeysUsed.size, matchedCount = parsed.matchedCount, missingCount = parsed.missingCount, matchedTopCount = parsed.matchedTop.size, missingTopCount = parsed.missingTop.size, matched = matched, missing = missing, coreColor = animatedCoreColor, cardBgColor = animatedCardBgColor, cardTextColor = cardTextColor, cardSubTextColor = cardSubTextColor)
+                        SuggestionsCard(jobScore = jobMatch, atsScore = ats, matched = matched, missing = missing, coreColor = animatedCoreColor, cardBgColor = animatedCardBgColor, cardTextColor = cardTextColor, cardSubTextColor = cardSubTextColor)
+                    } else if (rawJson != null) {
+                        val maybeErr = runCatching { JSONObject(rawJson!!).optString("detail") }.getOrNull()
+                        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = animatedCardBgColor)) {
+                            Column(modifier = Modifier.padding(16.dp)) { Text("Response received", fontWeight = FontWeight.Bold, color = cardTextColor); Spacer(Modifier.height(8.dp)); Text(text = if (!maybeErr.isNullOrBlank()) "Backend error: $maybeErr" else "Could not parse the backend response.", style = MaterialTheme.typography.bodyMedium, color = cardSubTextColor) }
+                        }
+                    }
+                    Spacer(Modifier.height(40.dp))
                 }
             }
+        }
+
+        // LAYER 3: Floating Pull Chain overlay
+        AnalyzePullChain(isDark = isDark, onToggleTheme = onToggleTheme)
+    }
+}
+
+// -----------------------------
+// PERFECT DIAGONAL DATA STREAM
+// -----------------------------
+@Composable
+fun DiagonalFlowingLinesCanvas(isDark: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition()
+
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(8000, easing = LinearEasing), repeatMode = RepeatMode.Restart)
+    )
+
+    val lineColor = if (isDark) Color.White else Color.Black
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+        val gapX = 140.dp.toPx()
+        val shiftX = phase * (gapX * 4f)
+        val linesCount = (w / gapX).toInt() + 6
+
+        for (i in -4 .. linesCount) {
+            val startX = i * gapX + shiftX - w * 0.2f
+            val startY = -h * 0.2f
+
+            val endX = startX + w * 0.8f
+            val endY = h * 1.2f
+
+            val cp1x = startX + w * 0.4f
+            val cp1y = h * 0.2f
+            val cp2x = endX - w * 0.4f
+            val cp2y = h * 0.8f
+
+            val path = Path().apply {
+                moveTo(startX, startY)
+                cubicTo(cp1x, cp1y, cp2x, cp2y, endX, endY)
+            }
+
+            val lineIndex = (i + 1000) % 4
+            val strokeWidth = when (lineIndex) {
+                0 -> 1.5.dp.toPx()
+                1 -> 2.dp.toPx()
+                2 -> 1.5f.dp.toPx()
+                else -> 1.dp.toPx()
+            }
+            val alpha = when (lineIndex) {
+                0 -> 0.15f
+                1 -> 0.25f
+                2 -> 0.20f
+                else -> 0.12f
+            }
+
+            drawPath(
+                path = path,
+                color = lineColor.copy(alpha = alpha),
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            )
         }
     }
 }
 
 // -----------------------------
-// UI components
+// TINY CLOCKWISE SHOOTING STAR TRAIL
+// -----------------------------
+fun Modifier.glowingBorderTrail(isAnalyzing: Boolean, color: Color): Modifier = composed {
+    if (!isAnalyzing) return@composed this
+
+    val transition = rememberInfiniteTransition()
+    val phase by transition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        // Speed of the star orbiting the button
+        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart)
+    )
+    val measure = remember { PathMeasure() }
+    val path = remember { Path() }
+
+    this.drawWithContent {
+        drawContent()
+
+        // The button has a BorderStroke of exactly 1.dp.
+        // To lock the path EXACTLY onto the centerline of the border, the inset must be 0.5.dp
+        val borderWidth = 1.dp.toPx()
+        val inset = borderWidth / 2f
+        val cornerRadius = size.height / 2f
+
+        path.reset()
+        // addRoundRect naturally draws Top-Left -> Top-Right -> Bottom-Right -> Bottom-Left (Clockwise)
+        path.addRoundRect(
+            RoundRect(
+                left = inset,
+                top = inset,
+                right = size.width - inset,
+                bottom = size.height - inset,
+                cornerRadius = CornerRadius(cornerRadius - inset)
+            )
+        )
+
+        measure.setPath(path, false)
+        val length = measure.length
+
+        // Short, clean tail (15% of the perimeter)
+        val tailLength = length * 0.15f
+        val currentDistance = phase * length
+
+        // Draw the tail with uniform thickness (1.5.dp), only fading the alpha to zero
+        val steps = 20 // High step count for buttery smooth fade
+        for (i in 0 until steps) {
+            // Step alpha goes from ~0.8 down to 0
+            val stepAlpha = (1f - (i.toFloat() / steps)) * 0.8f
+            val segmentStart = currentDistance - (tailLength * (i + 1) / steps)
+            val segmentEnd = currentDistance - (tailLength * i / steps)
+
+            val segment = Path()
+
+            if (segmentStart < 0 && segmentEnd < 0) {
+                measure.getSegment(segmentStart + length, segmentEnd + length, segment, true)
+            } else if (segmentStart < 0) {
+                measure.getSegment(segmentStart + length, length, segment, true)
+                measure.getSegment(0f, segmentEnd, segment, true)
+            } else {
+                measure.getSegment(segmentStart, segmentEnd, segment, true)
+            }
+
+            drawPath(
+                path = segment,
+                color = color.copy(alpha = stepAlpha),
+                style = Stroke(1.5.dp.toPx(), cap = StrokeCap.Round)
+            )
+        }
+
+        // Draw the Tiny, High-Energy Glowing Star right at the front
+        val pos = measure.getPosition(if (currentDistance >= length) 0f else currentDistance)
+        if (pos != Offset.Unspecified) {
+            // Very faint outer glow
+            drawCircle(
+                color = color.copy(alpha = 0.4f),
+                radius = 3.dp.toPx(),
+                center = pos
+            )
+            // Mid energy glow
+            drawCircle(
+                color = color.copy(alpha = 0.8f),
+                radius = 1.5.dp.toPx(),
+                center = pos
+            )
+            // Tiny, pristine pure-white core
+            drawCircle(
+                color = Color.White,
+                radius = 0.8.dp.toPx(),
+                center = pos
+            )
+        }
+    }
+}
+
+// -----------------------------
+// OMNI-DIRECTIONAL PULL CHAIN
 // -----------------------------
 @Composable
-private fun JobOnlyResultsCard(isDark: Boolean, skills: List<String>) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+fun AnalyzePullChain(isDark: Boolean, onToggleTheme: (Boolean) -> Unit) {
+    val coroutineScope = rememberCoroutineScope()
+    val pullOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    var hasToggled by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+
+    val currentIsDark by rememberUpdatedState(isDark)
+    val currentOnToggle by rememberUpdatedState(onToggleTheme)
+
+    val anchorXDp = LocalConfiguration.current.screenWidthDp.dp - 44.dp
+    val anchorX = with(density) { anchorXDp.toPx() }
+    val anchorY = with(density) { -20.dp.toPx() }
+    val restLength = with(density) { 100.dp.toPx() }
+
+    val linkColor = if (isDark) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val currentX = anchorX + pullOffset.value.x
+        val currentY = anchorY + restLength + pullOffset.value.y
+
+        drawLine(color = linkColor, start = Offset(anchorX, anchorY), end = Offset(currentX, currentY), strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(x = (anchorX + pullOffset.value.x - 24.dp.toPx()).roundToInt(), y = (anchorY + restLength + pullOffset.value.y - 24.dp.toPx()).roundToInt()) }
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(if (isDark) Color(0xFF030303) else Color.White)
+                .background(if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.1f))
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragEnd = {
+                            hasToggled = false
+                            coroutineScope.launch { pullOffset.animateTo(Offset.Zero, spring(dampingRatio = 0.35f, stiffness = Spring.StiffnessLow)) }
+                        },
+                        onDragCancel = {
+                            hasToggled = false
+                            coroutineScope.launch { pullOffset.animateTo(Offset.Zero, spring(dampingRatio = 0.35f, stiffness = Spring.StiffnessLow)) }
+                        },
+                        onDrag = { _, dragAmount ->
+                            coroutineScope.launch {
+                                val newOffset = pullOffset.value + dragAmount
+                                pullOffset.snapTo(newOffset)
+                                if (newOffset.getDistance() > 150f && !hasToggled) {
+                                    currentOnToggle(!currentIsDark)
+                                    hasToggled = true
+                                }
+                            }
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isDark) Icons.Default.DarkMode else Icons.Default.WbSunny,
+                contentDescription = "Pull to switch theme",
+                tint = if (isDark) Color.White else Color.Black,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+// -----------------------------
+// LUXURY UI COMPONENTS
+// -----------------------------
+@Composable
+private fun JobOnlyResultsCard(skills: List<String>, coreColor: Color, cardBgColor: Color, cardTextColor: Color, cardSubTextColor: Color) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBgColor), border = BorderStroke(1.dp, coreColor.copy(alpha = 0.3f))) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Skills found in JD", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            SkillsChips(isDark = isDark, chips = skills, positive = true)
+            Text("Skills found in JD", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cardTextColor)
+            SkillsChips(chips = skills, positive = true, coreColor = coreColor, cardTextColor = cardTextColor)
         }
     }
 }
 
 @Composable
-private fun JobOnlySuggestionsCard(skills: List<String>) {
+private fun JobOnlySuggestionsCard(skills: List<String>, coreColor: Color, cardBgColor: Color, cardTextColor: Color, cardSubTextColor: Color) {
     val suggestions = buildList {
         add("Mirror the top JD skills in your resume Skills section (only if honest).")
         add("Add 2 JD-aligned bullets in Projects/Experience proving these skills with metrics.")
         if (skills.isNotEmpty()) add("Top skills detected: ${skills.take(10).joinToString(", ")}.")
         add("Upload your resume PDF to calculate match score and missing skills.")
     }.distinct()
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBgColor), border = BorderStroke(1.dp, coreColor.copy(alpha = 0.3f))) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Next steps", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            suggestions.forEach { Text("• $it") }
+            Text("Next steps", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cardTextColor)
+            suggestions.forEach { Text("• $it", color = cardSubTextColor) }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ResultsCard(isDark: Boolean, atsScore: Int, jobScore: Int, resumeWarning: String?, resumeLikelihood: Float, jdTotalCount: Int, matchedCount: Int, missingCount: Int, matchedTopCount: Int, missingTopCount: Int, matched: List<String>, missing: List<String>) {
+private fun ResultsCard(atsScore: Int, jobScore: Int, resumeWarning: String?, resumeLikelihood: Float, jdTotalCount: Int, matchedCount: Int, missingCount: Int, matchedTopCount: Int, missingTopCount: Int, matched: List<String>, missing: List<String>, coreColor: Color, cardBgColor: Color, cardTextColor: Color, cardSubTextColor: Color) {
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var query by rememberSaveable { mutableStateOf("") }
@@ -680,63 +1005,58 @@ private fun ResultsCard(isDark: Boolean, atsScore: Int, jobScore: Int, resumeWar
     val matchedToShow = remember(matchedFiltered, showAllMatched, q) { if (q.isNotBlank() || showAllMatched) matchedFiltered else matchedFiltered.take(PREVIEW_CHIP_LIMIT) }
     val missingToShow = remember(missingFiltered, showAllMissing, q) { if (q.isNotBlank() || showAllMissing) missingFiltered else missingFiltered.take(PREVIEW_CHIP_LIMIT) }
     val jdCoverage = if (jdTotalCount > 0) { val cov = (jdTotalCount - missingCount).coerceIn(0, jdTotalCount); "$cov/$jdTotalCount" } else { "—" }
-    val matchedIsTopList = matchedTopCount in 1 until matchedCount
-    val missingIsTopList = missingTopCount in 1 until missingCount
 
     fun shareText(): String {
         val sb = StringBuilder()
-        sb.appendLine("ResumeMatch results\nATS: $atsScore/100\nJob Match: $jobScore/100")
-        if (jdTotalCount > 0) sb.appendLine("JD coverage: $jdCoverage")
-        sb.appendLine("Matched: $matchedCount" + (if (matchedIsTopList) " (top $matchedTopCount shown by backend)" else ""))
-        sb.appendLine("Missing: $missingCount" + (if (missingIsTopList) " (top $missingTopCount shown by backend)" else "") + "\n")
-        if (matched.isNotEmpty()) sb.appendLine("Matched skills:\n${matched.joinToString(", ")}\n")
-        if (missing.isNotEmpty()) sb.appendLine("Missing skills:\n${missing.joinToString(", ")}\n")
-        if (!resumeWarning.isNullOrBlank()) sb.appendLine("Note: $resumeWarning")
+        sb.appendLine("ResumeMatch results\nATS: $atsScore/100\nJob Match: $jobScore/100\nJD coverage: $jdCoverage")
+        if (matched.isNotEmpty()) sb.appendLine("Matched skills:\n${matched.joinToString(", ")}")
+        if (missing.isNotEmpty()) sb.appendLine("Missing skills:\n${missing.joinToString(", ")}")
         return sb.toString().trim()
     }
 
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBgColor), border = BorderStroke(1.dp, coreColor.copy(alpha = 0.3f))) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Results", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Results", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cardTextColor)
                 Spacer(Modifier.width(10.dp))
                 if (resumeLikelihood < 0.70f) ConfidenceBadge(likelihood = resumeLikelihood)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, shareText()) }; ctx.startActivity(Intent.createChooser(intent, "Share results")) }) { Icon(Icons.Default.Share, contentDescription = "Share") }
+                IconButton(onClick = { val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, shareText()) }; ctx.startActivity(Intent.createChooser(intent, "Share results")) }) { Icon(Icons.Default.Share, contentDescription = "Share", tint = coreColor) }
             }
-            if (!resumeWarning.isNullOrBlank()) { Surface(color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer, shape = RoundedCornerShape(12.dp)) { Text(resumeWarning, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) } }
-            ScoreBar(label = "ATS Readiness", score = atsScore, color = Color(0xFF42A5F5))
-            ScoreBar(label = "Job Match", score = jobScore, color = Color(0xFF66BB6A))
-            Text(text = "Matched: $matchedCount • Missing: $missingCount • JD coverage: $jdCoverage", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (matchedIsTopList || missingIsTopList) Text(text = "Note: Backend returns top skill lists; counts reflect the full estimate.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Search skills…") })
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { FilterChip(selected = grouped, onClick = { grouped = !grouped }, label = { Text(if (grouped) "Grouped" else "Compact") }) }
+            if (!resumeWarning.isNullOrBlank()) { Surface(color = Color(0xFF4A1010), contentColor = Color.White, shape = RoundedCornerShape(12.dp)) { Text(resumeWarning, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) } }
+            ScoreBar(label = "ATS Readiness", score = atsScore, color = coreColor, cardTextColor = cardTextColor)
+            ScoreBar(label = "Job Match", score = jobScore, color = Color(0xFF10B981), cardTextColor = cardTextColor)
+            Text(text = "Matched: $matchedCount • Missing: $missingCount • JD coverage: $jdCoverage", style = MaterialTheme.typography.bodySmall, color = cardSubTextColor)
+
+            OutlinedTextField(
+                value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Search skills…", color=Color.Gray) },
+                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedBorderColor = coreColor, unfocusedBorderColor = coreColor.copy(alpha=0.3f), focusedTextColor = cardTextColor, unfocusedTextColor = cardTextColor)
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { FilterChip(selected = grouped, onClick = { grouped = !grouped }, label = { Text(if (grouped) "Grouped" else "Compact", color=cardTextColor) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = coreColor.copy(alpha=0.3f))) }
 
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Matched Skills", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { showAllMatched = !showAllMatched }) { Text(if (showAllMatched || q.isNotBlank()) "Top ${PREVIEW_CHIP_LIMIT}" else "All (${matchedFiltered.size})") }
+                Text("Matched Skills", fontWeight = FontWeight.Bold, color = cardTextColor, modifier = Modifier.weight(1f))
+                TextButton(onClick = { showAllMatched = !showAllMatched }) { Text(if (showAllMatched || q.isNotBlank()) "Top ${PREVIEW_CHIP_LIMIT}" else "All (${matchedFiltered.size})", color = coreColor) }
             }
-            if (matchedFiltered.isEmpty()) { Text("No matched skills detected from available signals.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } else {
-                if (grouped) GroupedSkillsChips(isDark = isDark, chips = matchedToShow, positive = true) else SkillsChips(isDark = isDark, chips = matchedToShow, positive = true)
-                if (!showAllMatched && q.isBlank() && matchedFiltered.size > PREVIEW_CHIP_LIMIT) TextButton(onClick = { showAllMatched = true }) { Text("Show all matched (${matchedFiltered.size})") }
+            if (matchedFiltered.isEmpty()) { Text("No matched skills detected.", style = MaterialTheme.typography.bodySmall, color = cardSubTextColor) } else {
+                if (grouped) GroupedSkillsChips(chips = matchedToShow, positive = true, coreColor = coreColor, cardTextColor = cardTextColor, cardSubTextColor = cardSubTextColor) else SkillsChips(chips = matchedToShow, positive = true, coreColor = coreColor, cardTextColor = cardTextColor)
             }
 
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Missing Skills", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { showWhySheet = true }) { Icon(Icons.Default.Info, contentDescription = "Why missing", modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Why?") }
-                TextButton(onClick = { showAllMissing = !showAllMissing }) { Text(if (showAllMissing || q.isNotBlank()) "Top ${PREVIEW_CHIP_LIMIT}" else "All (${missingFiltered.size})") }
+                Text("Missing Skills", fontWeight = FontWeight.Bold, color = cardTextColor, modifier = Modifier.weight(1f))
+                TextButton(onClick = { showWhySheet = true }) { Icon(Icons.Default.Info, contentDescription = "Why missing", modifier = Modifier.size(18.dp), tint=coreColor); Spacer(Modifier.width(6.dp)); Text("Why?", color = coreColor) }
+                TextButton(onClick = { showAllMissing = !showAllMissing }) { Text(if (showAllMissing || q.isNotBlank()) "Top ${PREVIEW_CHIP_LIMIT}" else "All (${missingFiltered.size})", color = coreColor) }
             }
-            if (missingFiltered.isEmpty()) { Text("No missing skills detected.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } else {
-                if (grouped) GroupedSkillsChips(isDark = isDark, chips = missingToShow, positive = false) else SkillsChips(isDark = isDark, chips = missingToShow, positive = false)
-                if (!showAllMissing && q.isBlank() && missingFiltered.size > PREVIEW_CHIP_LIMIT) TextButton(onClick = { showAllMissing = true }) { Text("Show all missing (${missingFiltered.size})") }
+            if (missingFiltered.isEmpty()) { Text("No missing skills detected.", style = MaterialTheme.typography.bodySmall, color = cardSubTextColor) } else {
+                if (grouped) GroupedSkillsChips(chips = missingToShow, positive = false, coreColor = coreColor, cardTextColor = cardTextColor, cardSubTextColor = cardSubTextColor) else SkillsChips(chips = missingToShow, positive = false, coreColor = coreColor, cardTextColor = cardTextColor)
                 val topMissing = missingFiltered.firstOrNull()
                 val suggested = topMissing?.let { suggestedBulletFor(it) }
                 if (!suggested.isNullOrBlank()) {
-                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)) {
+                    Surface(shape = RoundedCornerShape(14.dp), color = Color.Gray.copy(alpha=0.2f)) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Suggested resume bullet", fontWeight = FontWeight.SemiBold)
-                            Text(suggested, style = MaterialTheme.typography.bodySmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { TextButton(onClick = { clipboard.setText(AnnotatedString(suggested)) }) { Text("Copy") } }
+                            Text("Suggested resume bullet", fontWeight = FontWeight.Bold, color = cardTextColor)
+                            Text(suggested, style = MaterialTheme.typography.bodySmall, color = cardSubTextColor)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { TextButton(onClick = { clipboard.setText(AnnotatedString(text = suggested)) }) { Text("Copy", color=coreColor) } }
                         }
                     }
                 }
@@ -744,15 +1064,13 @@ private fun ResultsCard(isDark: Boolean, atsScore: Int, jobScore: Int, resumeWar
         }
     }
     if (showWhySheet) {
-        ModalBottomSheet(onDismissRequest = { showWhySheet = false }, shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)) {
+        ModalBottomSheet(onDismissRequest = { showWhySheet = false }, containerColor = cardBgColor) {
             Column(modifier = Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("How 'Missing Skills' works", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("• Missing skills are JD skills not detected in the resume text extraction.", style = MaterialTheme.typography.bodyMedium)
-                Text("• ATS scanners depend on exact wording — include key skills in Summary/Skills/Project bullets (honestly).", style = MaterialTheme.typography.bodyMedium)
-                Text("• If your resume is image/table heavy, export a text-based PDF for better parsing.", style = MaterialTheme.typography.bodyMedium)
-                if (matchedIsTopList || missingIsTopList) Text("• Backend returns top lists for UI; counts may exceed the list sizes.", style = MaterialTheme.typography.bodyMedium)
+                Text("How 'Missing Skills' works", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cardTextColor)
+                Text("• Missing skills are JD skills not detected in the resume.", style = MaterialTheme.typography.bodyMedium, color=cardSubTextColor)
+                Text("• ATS scanners depend on exact wording.", style = MaterialTheme.typography.bodyMedium, color=cardSubTextColor)
                 Spacer(Modifier.height(4.dp))
-                Button(onClick = { showWhySheet = false }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(999.dp)) { Text("Got it") }
+                Button(onClick = { showWhySheet = false }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = coreColor)) { Text("Got it", color=Color.Black) }
                 Spacer(Modifier.height(10.dp))
             }
         }
@@ -760,45 +1078,42 @@ private fun ResultsCard(isDark: Boolean, atsScore: Int, jobScore: Int, resumeWar
 }
 
 @Composable
-private fun SuggestionsCard(jobScore: Int, atsScore: Int, matched: List<String>, missing: List<String>) {
+private fun SuggestionsCard(jobScore: Int, atsScore: Int, matched: List<String>, missing: List<String>, coreColor: Color, cardBgColor: Color, cardTextColor: Color, cardSubTextColor: Color) {
     val suggestions = remember(jobScore, atsScore, matched, missing) { buildStrongSuggestions(jobScore, atsScore, matched, missing) }
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = cardBgColor), border = BorderStroke(1.dp, coreColor.copy(alpha = 0.3f))) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Suggestions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Suggestions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cardTextColor)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AssistChip(onClick = {}, label = { Text("Job Match: ${labelForScore(jobScore)}") })
-                AssistChip(onClick = {}, label = { Text("ATS: ${labelForScore(atsScore)}") })
+                AssistChip(onClick = {}, label = { Text("Job Match: ${labelForScore(jobScore)}", color=cardTextColor) }, colors = AssistChipDefaults.assistChipColors(containerColor = Color.Gray.copy(alpha=0.2f)))
+                AssistChip(onClick = {}, label = { Text("ATS: ${labelForScore(atsScore)}", color=cardTextColor) }, colors = AssistChipDefaults.assistChipColors(containerColor = Color.Gray.copy(alpha=0.2f)))
             }
-            suggestions.forEach { Text("• $it") }
+            suggestions.forEach { Text("• $it", color=cardSubTextColor) }
         }
     }
 }
 
 @Composable
-private fun ScoreBar(label: String, score: Int, color: Color) {
+private fun ScoreBar(label: String, score: Int, color: Color, cardTextColor: Color) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
-            Text("$score/100", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = cardTextColor)
+            Text("$score/100", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = cardTextColor)
         }
-        LinearProgressIndicator(progress = (score.coerceIn(0, 100) / 100f), modifier = Modifier.fillMaxWidth().height(10.dp), color = color, trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+        LinearProgressIndicator(progress = (score.coerceIn(0, 100) / 100f), modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)), color = color, trackColor = Color.Gray.copy(alpha=0.3f))
     }
 }
 
-// -----------------------------
-// Chips layout
-// -----------------------------
 @Composable
-private fun SkillsChips(isDark: Boolean, chips: List<String>, positive: Boolean) {
+private fun SkillsChips(chips: List<String>, positive: Boolean, coreColor: Color, cardTextColor: Color) {
     if (chips.isEmpty()) return
     FlowWrap(modifier = Modifier.fillMaxWidth(), horizontalSpacing = 10.dp, verticalSpacing = 10.dp) {
-        chips.forEach { chip -> SkillChip(isDark = isDark, label = chip, positive = positive) }
+        chips.forEach { chip -> SkillChip(label = chip, positive = positive, coreColor = coreColor, cardTextColor = cardTextColor) }
     }
 }
 
 @Composable
 private fun FlowWrap(modifier: Modifier = Modifier, horizontalSpacing: Dp = 8.dp, verticalSpacing: Dp = 8.dp, content: @Composable () -> Unit) {
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    val density = LocalDensity.current
     val hSpacePx = with(density) { horizontalSpacing.toPx().toInt() }
     val vSpacePx = with(density) { verticalSpacing.toPx().toInt() }
 
@@ -826,36 +1141,26 @@ private fun FlowWrap(modifier: Modifier = Modifier, horizontalSpacing: Dp = 8.dp
 }
 
 @Composable
-private fun SkillChip(isDark: Boolean, label: String, positive: Boolean) {
-    val bg = when {
-        positive && isDark -> Color(0xFF0B3D2E).copy(alpha = 0.65f)
-        !positive && isDark -> Color(0xFF4A1010).copy(alpha = 0.65f)
-        positive && !isDark -> Color(0xFFD6F5EA).copy(alpha = 0.95f)
-        else -> Color(0xFFFFE0E0).copy(alpha = 0.95f)
-    }
-    val border = when { positive -> Color(0xFF2ECC71).copy(alpha = 0.55f); else -> Color(0xFFE74C3C).copy(alpha = 0.55f) }
-    val textColor = if (isDark) Color.White else Color(0xFF111111)
+private fun SkillChip(label: String, positive: Boolean, coreColor: Color, cardTextColor: Color) {
+    val bg = if (positive) coreColor.copy(alpha = 0.15f) else Color(0xFFE74C3C).copy(alpha = 0.15f)
+    val border = if (positive) coreColor.copy(alpha = 0.5f) else Color(0xFFE74C3C).copy(alpha = 0.5f)
 
     Surface(shape = RoundedCornerShape(999.dp), color = bg, border = BorderStroke(1.dp, border)) {
-        Text(text = label, modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp), color = textColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text = label, modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp), color = cardTextColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
-// -----------------------------
-// UI Enhancements helpers
-// -----------------------------
 @Composable
 private fun ConfidenceBadge(likelihood: Float) {
     val (label, color) = when {
-        likelihood < 0.25f -> "Resume confidence: Low" to MaterialTheme.colorScheme.error
-        likelihood < 0.45f -> "Resume confidence: Medium" to MaterialTheme.colorScheme.tertiary
-        else -> "Resume confidence: Medium" to MaterialTheme.colorScheme.tertiary
+        likelihood < 0.25f -> "Resume confidence: Low" to Color(0xFFEF4444)
+        else -> "Resume confidence: Medium" to Color(0xFFF59E0B)
     }
-    AssistChip(onClick = {}, enabled = false, label = { Text(label) }, colors = AssistChipDefaults.assistChipColors(containerColor = color.copy(alpha = 0.18f), labelColor = MaterialTheme.colorScheme.onSurface))
+    AssistChip(onClick = {}, enabled = false, label = { Text(label, color = Color.White) }, colors = AssistChipDefaults.assistChipColors(containerColor = color.copy(alpha = 0.2f), disabledContainerColor = color.copy(alpha=0.2f)))
 }
 
 @Composable
-private fun GroupedSkillsChips(isDark: Boolean, chips: List<String>, positive: Boolean) {
+private fun GroupedSkillsChips(chips: List<String>, positive: Boolean, coreColor: Color, cardTextColor: Color, cardSubTextColor: Color) {
     if (chips.isEmpty()) return
     val groups = remember(chips) { chips.groupBy { bucketOf(it) } }
     val order = listOf(Bucket.LANG, Bucket.API, Bucket.ANDROID, Bucket.CLOUD, Bucket.SYSTEMS, Bucket.AIML, Bucket.OTHER)
@@ -864,14 +1169,12 @@ private fun GroupedSkillsChips(isDark: Boolean, chips: List<String>, positive: B
         order.forEach { b ->
             val list = groups[b].orEmpty()
             if (list.isNotEmpty()) {
-                Text(text = bucketLabel(b), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
-                SkillsChips(isDark = isDark, chips = list, positive = positive)
+                Text(text = bucketLabel(b), style = MaterialTheme.typography.bodySmall, color = cardSubTextColor, fontWeight = FontWeight.Bold)
+                SkillsChips(chips = list, positive = positive, coreColor = coreColor, cardTextColor = cardTextColor)
             }
         }
     }
 }
-
-private fun bucketLabel(b: Bucket): String = when (b) { Bucket.LANG -> "Languages"; Bucket.API -> "Backend / APIs"; Bucket.ANDROID -> "Android"; Bucket.CLOUD -> "Cloud / DevOps"; Bucket.AIML -> "AI/ML"; Bucket.SYSTEMS -> "Systems"; Bucket.OTHER -> "Other" }
 
 private fun suggestedBulletFor(skillLabel: String): String? {
     val s = skillLabel.lowercase().trim()
