@@ -304,7 +304,10 @@ fun LiveInterviewScreen(
 
     fun sendAudioToGemini(finalizedText: String, isSystemTrigger: Boolean = false) {
         if (finalizedText.isBlank() && !isSystemTrigger) {
-            startContinuousListening()
+            scope.launch {
+                delay(1500)
+                if (isInterviewing && !isAITalking && !isAIThinking) startContinuousListening()
+            }
             return
         }
 
@@ -317,43 +320,62 @@ fun LiveInterviewScreen(
 
         scope.launch {
             try {
-                val reqObj = LiveInterviewRequest(
-                    targetRole = userProfile?.targetRole ?: "Software Engineer",
-                    jobDescription = "General tech interview based on profile.",
-                    vaultData = vaultData,
-                    chatHistory = Gson().toJson(transcript),
-                    userAudioText = finalizedText,
-                    elapsedSeconds = elapsedSeconds
-                )
+                // TODO[Green Code / LiteRT]: 
+                // 1. Detect if S24 Ultra NPU is available.
+                // 2. Load quantized Gemma 2B model via MediaPipe/LiteRT delegate.
+                // 3. Bypass the HTTP request entirely and generate `aiReply` locally.
+                val useLocalLiteRT = false
 
-                val reqBuilder = Request.Builder()
-                    .url(apiBaseUrl.trimEnd('/') + "/v1/ai/live-interview")
-                    .post(Gson().toJson(reqObj).toRequestBody("application/json".toMediaType()))
-                    .build()
-
-                val response = withContext(Dispatchers.IO) { httpClient.newCall(reqBuilder).execute() }
-                val body = response.body?.string()
-
-                if (response.isSuccessful && body != null) {
-                    val aiRes = Gson().fromJson(body, LiveInterviewResponse::class.java)
-                    transcript = transcript + ChatTurn("Interviewer", aiRes.aiReply)
-                    isAIThinking = false
-
-                    if (aiRes.isConcluded || elapsedSeconds >= maxSeconds) {
-                        endInterview(timeUp = false)
-                    } else {
-                        speak(aiRes.aiReply)
-                    }
+                if (useLocalLiteRT) {
+                    // Local NPU inference block (Stubbed for Next Phase)
+                    // val localReply = localLiteRTModel.generateResponse(finalizedText, vaultData)
+                    // transcript = transcript + ChatTurn("Interviewer", localReply)
+                    // ...
                 } else {
-                    isAIThinking = false
-                    if (!isSystemTrigger) transcript = transcript + ChatTurn("System", "Connection error. Retrying...")
-                    startContinuousListening()
+                    val reqObj = LiveInterviewRequest(
+                        targetRole = userProfile?.targetRole ?: "Software Engineer",
+                        jobDescription = "General tech interview based on profile.",
+                        vaultData = vaultData,
+                        chatHistory = Gson().toJson(transcript),
+                        userAudioText = finalizedText,
+                        elapsedSeconds = elapsedSeconds
+                    )
+
+                    val reqBuilder = Request.Builder()
+                        .url(apiBaseUrl.trimEnd('/') + "/v1/ai/live-interview")
+                        .post(Gson().toJson(reqObj).toRequestBody("application/json".toMediaType()))
+                        .build()
+
+                    val response = withContext(Dispatchers.IO) { httpClient.newCall(reqBuilder).execute() }
+                    val body = response.body?.string()
+
+                    if (response.isSuccessful && body != null) {
+                        val aiRes = Gson().fromJson(body, LiveInterviewResponse::class.java)
+                        transcript = transcript + ChatTurn("Interviewer", aiRes.aiReply)
+                        isAIThinking = false
+
+                        if (aiRes.isConcluded || elapsedSeconds >= maxSeconds) {
+                            endInterview(timeUp = false)
+                        } else {
+                            speak(aiRes.aiReply)
+                        }
+                    } else {
+                        isAIThinking = false
+                        if (!isSystemTrigger) transcript = transcript + ChatTurn("System", "Connection error. Retrying...")
+                        scope.launch {
+                            delay(1500)
+                            if (isInterviewing && !isAITalking && !isAIThinking) startContinuousListening()
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 isAIThinking = false
                 val err = e.localizedMessage ?: "Unknown Error"
                 Toast.makeText(ctx, "Network Error: Server taking too long to respond. Try again.", Toast.LENGTH_LONG).show()
-                startContinuousListening()
+                scope.launch {
+                    delay(2000)
+                    if (isInterviewing && !isAITalking && !isAIThinking) startContinuousListening()
+                }
             }
         }
     }
@@ -368,7 +390,10 @@ fun LiveInterviewScreen(
             override fun onError(error: Int) {
                 isMicHot = false
                 if (isInterviewing && !isAITalking && !isAIThinking) {
-                    startContinuousListening()
+                    scope.launch {
+                        delay(1500)
+                        if (isInterviewing && !isAITalking && !isAIThinking) startContinuousListening()
+                    }
                 }
             }
             override fun onResults(results: Bundle?) {
@@ -376,7 +401,12 @@ fun LiveInterviewScreen(
                 if (!matches.isNullOrEmpty() && matches[0].isNotBlank()) {
                     sendAudioToGemini(matches[0])
                 } else {
-                    if (isInterviewing && !isAITalking && !isAIThinking) startContinuousListening()
+                    if (isInterviewing && !isAITalking && !isAIThinking) {
+                        scope.launch {
+                            delay(1500)
+                            if (isInterviewing && !isAITalking && !isAIThinking) startContinuousListening()
+                        }
+                    }
                 }
             }
             override fun onPartialResults(partialResults: Bundle?) {
@@ -643,6 +673,9 @@ fun StarfieldBackground() {
 @Composable
 fun ParticleBlobOrb(isThinking: Boolean, isTalking: Boolean, isListening: Boolean) {
 
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsState()
+
     val targetColor = when {
         isListening -> Color(0xFF10B981)
         isThinking -> Color(0xFFD4AF37)
@@ -657,17 +690,21 @@ fun ParticleBlobOrb(isThinking: Boolean, isTalking: Boolean, isListening: Boolea
     var rotZ by remember { mutableFloatStateOf(0f) }
     var waveTime by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(Unit) {
-        var lastTime = withFrameNanos { it }
-        while (true) {
-            val currentTime = withFrameNanos { it }
-            val deltaMs = (currentTime - lastTime) / 1_000_000f
-            lastTime = currentTime
+    LaunchedEffect(lifecycleState) {
+        if (lifecycleState == androidx.lifecycle.Lifecycle.State.RESUMED) {
+            var lastTime = withFrameNanos { it }
+            while (true) {
+                val currentTime = withFrameNanos { it }
+                val deltaMs = (currentTime - lastTime) / 1_000_000f
+                lastTime = currentTime
 
-            rotY += deltaMs * 0.0004f
-            rotX += deltaMs * 0.0002f
-            rotZ += deltaMs * 0.0003f
-            waveTime += deltaMs * 0.003f
+                if (deltaMs < 100f) {
+                    rotY += deltaMs * 0.0004f
+                    rotX += deltaMs * 0.0002f
+                    rotZ += deltaMs * 0.0003f
+                    waveTime += deltaMs * 0.003f
+                }
+            }
         }
     }
 
