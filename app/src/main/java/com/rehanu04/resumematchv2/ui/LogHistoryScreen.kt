@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -25,7 +27,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun LogHistoryScreen(
     onBack: () -> Unit,
-    logs: List<LogEntry> = emptyList() // Now defaults to an empty list[cite: 15]
+    logs: List<LogEntry> = emptyList()
 ) {
     val bgColor = Color(0xFF030303)
     val cardBg = Color(0xFF0C0C0C)

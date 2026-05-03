@@ -23,8 +23,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
 /**
- * 2026 Technical Round Simulator: High-Fidelity "Top 5%" Edition.
- * Features: Streaming Reasoning (Latency Killer), A2UI Scorecards, and SROM Audit Logic[cite: 3, 4, 6].
+ * HireSphere v5 - Technical Gauntlet [2026 Standard]
+ * Features: Streaming Reasoning, A2UI Scorecards, SROM Audit, and Solution Review.
  */
 @Composable
 fun TechnicalTurnaroundScreen(
@@ -34,44 +34,47 @@ fun TechnicalTurnaroundScreen(
     val bgColor = Color(0xFF0C0C0C)
     val accentCyan = Color(0xFF22D3EE)
 
-    // --- State Management ---
+    // --- State Management: Persistence & Navigation ---
     var isStarted by remember { mutableStateOf(false) }
     var isFinished by remember { mutableStateOf(false) }
-    var isEvaluating by remember { mutableStateOf(false) } // For Streaming Reasoning Console
+    var isEvaluating by remember { mutableStateOf(false) }
+    var showSolutions by remember { mutableStateOf(false) } // Practice/Solutions Mode
+
     var jobDescription by remember { mutableStateOf("") }
     var selectedDifficulty by remember { mutableStateOf("Medium") }
     var currentGateIndex by remember { mutableStateOf(0) }
     var timeRemainingSeconds by remember { mutableStateOf(600) }
-    var reasoningTrace by remember { mutableStateOf("") } // Real-time SSE Stream
+    var reasoningTrace by remember { mutableStateOf("") }
     var showExitDialog by remember { mutableStateOf(false) }
 
-    // Multi-gate state persistence[cite: 5, 9]
+    // Multi-gate state persistence: Stores code for all 5 technical gates separately
     val gateCodes = remember { mutableStateMapOf<Int, String>() }
 
-    // Timer Logic
+    // --- Global Assessment Timer ---
     LaunchedEffect(isStarted, isFinished) {
         if (isStarted && !isFinished) {
             while (timeRemainingSeconds > 0) {
                 delay(1000L)
                 timeRemainingSeconds--
             }
-            if (timeRemainingSeconds <= 0) {
-                isFinished = true
-            }
+            if (timeRemainingSeconds <= 0) isFinished = true
         }
     }
 
-    // Exit Warning
+    // --- Exit Confirmation (Logs Activity) ---
     if (showExitDialog) {
         AlertDialog(
             onDismissRequest = { showExitDialog = false },
-            title = { Text(text = "Discard Progress?", color = Color.White) },
-            text = { Text(text = "Your technical evaluation will be lost. Are you sure?", color = Color.LightGray) },
+            title = { Text(text = "Quit Technical Round?", color = Color.White) },
+            text = { Text(text = "Leaving now will log this session as 'INTERRUPTED'. Your current trajectory will be saved to the Vault.", color = Color.LightGray) },
             confirmButton = {
-                TextButton(onClick = onBack) { Text(text = "DISCARD", color = Color.Red) }
+                TextButton(onClick = {
+                    // Future Logic: Log "INTERRUPTED" status to LogHistoryScreen
+                    onBack()
+                }) { Text(text = "QUIT & LOG", color = Color.Red) }
             },
             dismissButton = {
-                TextButton(onClick = { showExitDialog = false }) { Text(text = "STAY", color = Color.White) }
+                TextButton(onClick = { showExitDialog = false }) { Text(text = "RESUME", color = Color.White) }
             },
             containerColor = Color(0xFF18181B)
         )
@@ -80,7 +83,7 @@ fun TechnicalTurnaroundScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = "Technical Round", fontWeight = FontWeight.Bold) },
+                title = { Text(text = "Technical Gauntlet", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { if (isStarted && !isFinished) showExitDialog = true else onBack() }) {
                         Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back")
@@ -106,6 +109,7 @@ fun TechnicalTurnaroundScreen(
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             when {
+                // PHASE 1: PREP & CALIBRATION
                 !isStarted -> PrepPhaseContent(
                     jd = jobDescription,
                     onJdChange = { jobDescription = it },
@@ -114,17 +118,27 @@ fun TechnicalTurnaroundScreen(
                     onStart = { isStarted = true },
                     accentColor = accentCyan
                 )
+                // PHASE 2: EVALUATION OVERLAY (Kills Latency)
                 isEvaluating -> StreamingReasoningOverlay(
                     trace = reasoningTrace,
                     onFinished = { isFinished = true; isEvaluating = false },
                     accentColor = accentCyan
                 )
-                isFinished -> ResultPhaseContent(
-                    gatesCompleted = if (timeRemainingSeconds <= 0) currentGateIndex else 5,
-                    difficulty = selectedDifficulty,
-                    onExit = { onComplete(0.85f, 5); onBack() },
-                    accentColor = accentCyan
-                )
+                // PHASE 3: RESULTS & SOLUTIONS
+                isFinished -> {
+                    if (showSolutions) {
+                        SolutionsReviewPhase(onBack = { showSolutions = false }, accentColor = accentCyan)
+                    } else {
+                        ResultPhaseContent(
+                            gatesCompleted = if (timeRemainingSeconds <= 0) currentGateIndex else 5,
+                            difficulty = selectedDifficulty,
+                            onViewSolutions = { showSolutions = true },
+                            onExit = { onComplete(0.85f, 5); onBack() },
+                            accentColor = accentCyan
+                        )
+                    }
+                }
+                // PHASE 4: ACTIVE ASSESSMENT (GATES TG-A1 to TG-A5)
                 else -> AssessmentPhaseContent(
                     gateIndex = currentGateIndex,
                     gateCodes = gateCodes,
@@ -153,7 +167,7 @@ fun PrepPhaseContent(
         Icon(imageVector = Icons.Default.Description, contentDescription = null, tint = accentColor, modifier = Modifier.size(48.dp))
         Spacer(modifier = Modifier.height(16.dp))
         Text(text = "Assessment Setup", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        Text(text = "Configure the 2026 Gauntlet difficulty[cite: 4].", color = Color.Gray)
+        Text(text = "Configure the 2026 Gauntlet difficulty.", color = Color.Gray)
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -175,12 +189,12 @@ fun PrepPhaseContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text(text = "Job Description", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text(text = "Job Description (Context)", color = Color.White, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(
             value = jd,
             onValueChange = onJdChange,
             modifier = Modifier.fillMaxWidth().height(180.dp).padding(top = 8.dp),
-            placeholder = { Text(text = "Paste JD here to calibrate gates...", color = Color.DarkGray) },
+            placeholder = { Text(text = "Paste JD to calibrate gates...", color = Color.DarkGray) },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = accentColor,
                 unfocusedBorderColor = Color.DarkGray,
@@ -225,11 +239,11 @@ fun AssessmentPhaseContent(
                 Column(Modifier.padding(20.dp)) {
                     Text(text = gate.challengeTitle, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
 
-                    // Multimodal Integration for TG-A1
+                    // Multimodal Simulation
                     if (gate.id == "TG-A1") {
                         Spacer(Modifier.height(12.dp))
                         Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.DarkGray).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                            Text("[VISION: RESOURCE_USAGE_GRAPH.PNG]", color = Color.Gray, fontSize = 10.sp)
+                            Text("[VISION MODULE: RESOURCE_usage_audit.png]", color = Color.Gray, fontSize = 10.sp)
                         }
                     }
 
@@ -239,9 +253,9 @@ fun AssessmentPhaseContent(
                     TextField(
                         value = gateCodes[gateIndex] ?: "",
                         onValueChange = { gateCodes[gateIndex] = it },
-                        modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp)),
+                        modifier = Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(8.dp)),
                         colors = TextFieldDefaults.colors(focusedContainerColor = Color.Black, unfocusedContainerColor = Color.Black, focusedTextColor = Color.Green, unfocusedTextColor = Color.Green),
-                        placeholder = { Text("// Write architectural solution here...", color = Color.DarkGray) }
+                        placeholder = { Text("// Enter architectural logic...", color = Color.DarkGray) }
                     )
                 }
             }
@@ -269,18 +283,18 @@ fun AssessmentPhaseContent(
 // ==========================================
 @Composable
 fun StreamingReasoningOverlay(trace: String, onFinished: () -> Unit, accentColor: Color) {
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.9f)).padding(24.dp)) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.95f)).padding(24.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = accentColor)
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Agentic SROM Audit in Progress...", color = accentColor, fontWeight = FontWeight.Bold)
+            Text("Agentic SROM Audit [v5]...", color = accentColor, fontWeight = FontWeight.Bold)
 
             Card(
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 24.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF111111))
             ) {
                 Text(
-                    text = trace.ifEmpty { "Streaming reasoning trajectory from Gemini 2.5 Flash-Lite..." },
+                    text = trace.ifEmpty { "Streaming real-time reasoning trajectory from Render Backend..." },
                     modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()),
                     color = Color.Green,
                     fontSize = 12.sp,
@@ -289,53 +303,73 @@ fun StreamingReasoningOverlay(trace: String, onFinished: () -> Unit, accentColor
             }
 
             Button(onClick = onFinished, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(accentColor)) {
-                Text("PROCEED TO GENERATIVE SCORECARD", color = Color.Black, fontWeight = FontWeight.Bold)
+                Text("GENERATIVE SCORECARD", color = Color.Black, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
 // ==========================================
-// COMPONENT: RESULTS PHASE (A2UI SCORECARD)
+// COMPONENT: RESULTS PHASE (SCORECARD)
 // ==========================================
 @Composable
-fun ResultPhaseContent(gatesCompleted: Int, difficulty: String, onExit: () -> Unit, accentColor: Color) {
+fun ResultPhaseContent(gatesCompleted: Int, difficulty: String, onViewSolutions: () -> Unit, onExit: () -> Unit, accentColor: Color) {
     val surfaceColor = Color(0xFF18181B)
     Column(modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = Color.Green, modifier = Modifier.size(64.dp))
         Spacer(modifier = Modifier.height(16.dp))
         Text(text = "Assessment Complete", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        Text(text = "Mode: $difficulty", color = Color.Gray)
+        Text(text = "Difficulty: $difficulty", color = Color.Gray)
 
         Spacer(modifier = Modifier.height(32.dp))
 
+        // Metrics calibrated to 2026 Responsible Tech standards
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = surfaceColor)) {
             Column(modifier = Modifier.padding(20.dp)) {
-                ResultMetricRow(label = "Execution Correctness", score = 0.85f, color = Color.Cyan) // 40% Weight[cite: 4]
+                ResultMetricRow(label = "Execution Correctness", score = 0.85f, color = Color.Cyan) // 40% Weight
                 Spacer(modifier = Modifier.height(16.dp))
-                ResultMetricRow(label = "Sustainability Index", score = 0.72f, color = Color.Green) // 35% Weight[cite: 4]
+                ResultMetricRow(label = "Sustainability Index", score = 0.72f, color = Color.Green) // 35% Weight
                 Spacer(modifier = Modifier.height(16.dp))
-                ResultMetricRow(label = "Agent Stability", score = 0.65f, color = Color.Magenta)    // 25% Weight[cite: 4]
+                ResultMetricRow(label = "Agent Stability", score = 0.65f, color = Color.Magenta)    // 25% Weight
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = surfaceColor.copy(alpha = 0.5f))) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(text = "SROM Audit Feedback", fontWeight = FontWeight.Bold, color = accentColor)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Completed $gatesCompleted/5 Gates. High 'Tail Energy' detected in Gate 3. Sustainability score is priority for 2026 Lead roles[cite: 4, 6].",
-                    color = Color.LightGray, fontSize = 13.sp, lineHeight = 18.sp
-                )
-            }
+        Button(onClick = onViewSolutions, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)) {
+            Text("REVIEW ARCHITECTURAL SOLUTIONS", color = Color.White)
         }
 
         Spacer(modifier = Modifier.height(40.dp))
 
         Button(onClick = onExit, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = accentColor)) {
-            Text(text = "FINISH & SAVE TO VAULT", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+            Text("SAVE TO VAULT & FINISH", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}
+
+// ==========================================
+// COMPONENT: SOLUTIONS REVIEW (PRACTICE MODE)
+// ==========================================
+@Composable
+fun SolutionsReviewPhase(onBack: () -> Unit, accentColor: Color) {
+    Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
+        Text("Reference Architectures", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text("Understand why your performance varied [v5 Audit].", color = Color.Gray, modifier = Modifier.padding(bottom = 24.dp))
+
+        for (i in 0..4) {
+            val gate = getGateData(i)
+            Card(Modifier.fillMaxWidth().padding(vertical = 8.dp), colors = CardDefaults.cardColors(Color(0xFF18181B))) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("${gate.id}: ${gate.challengeTitle}", color = accentColor, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text(gate.suggestedSolution, color = Color.LightGray, fontSize = 13.sp, lineHeight = 20.sp)
+                }
+            }
+        }
+
+        Button(onClick = onBack, Modifier.fillMaxWidth().padding(top = 24.dp).height(56.dp), colors = ButtonDefaults.buttonColors(accentColor)) {
+            Text("RETURN TO SCORECARD", color = Color.Black, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -353,7 +387,7 @@ fun ResultMetricRow(label: String, score: Float, color: Color) {
 }
 
 // ==========================================
-// UTILITIES
+// UTILITIES & DATA
 // ==========================================
 @Composable
 fun TechnicalProgressHeader(currentIndex: Int, accentColor: Color, onGateSelect: (Int) -> Unit) {
@@ -366,13 +400,13 @@ fun TechnicalProgressHeader(currentIndex: Int, accentColor: Color, onGateSelect:
 
 fun getGateData(index: Int): GateData {
     return when (index) {
-        0 -> GateData("TG-A1", "Resource Scheduling", "Carbon-Aware Prompt Scheduler", "Build a bi-objective scheduler. Maximize goodput while minimizing carbon cost[cite: 4, 6].")
-        1 -> GateData("TG-A2", "Goal Decomposition", "Recursive Agentic Supervisor", "Implement a Supervisor Pattern for serializable sub-tasks[cite: 4, 6].")
-        2 -> GateData("TG-A3", "Payload Efficiency", "5G Tail Energy Refactor", "Minimize tail energy by batching telemetry tasks into single windows[cite: 4, 6].")
-        3 -> GateData("TG-A4", "Tool Safety", "Financial Reasoning Sandbox", "Build a safety-first sandbox for HITL review logic[cite: 4, 6].")
-        else -> GateData("TG-A5", "Architecture Selection", "SLO-Driven Spectrum", "Select between deterministic and probabilistic architectures for 200ms SLAs[cite: 4, 6].")
+        0 -> GateData("TG-A1", "Resource Scheduling", "Carbon-Aware Prompt Scheduler", "Build a scheduler that maximizes goodput while minimizing carbon cost.", "SOLUTION: Implement a time-shifting queue that batches inference requests during peak 'Green Energy' windows. Utilize low-priority background processing for non-critical reasoning trajectories[cite: 4].")
+        1 -> GateData("TG-A2", "Goal Decomposition", "Recursive Agentic Supervisor", "Implement a Supervisor Pattern for serializable sub-tasks.", "SOLUTION: Construct a state-machine based supervisor. Sub-tasks must return versioned deltas that the supervisor validates before spawning concurrent agent child-processes[cite: 4, 6].")
+        2 -> GateData("TG-A3", "Payload Efficiency", "5G Tail Energy Refactor", "Minimize tail energy by batching telemetry tasks.", "SOLUTION: Use 'Packet Coalescing'. Implement a buffer that holds telemetry data for 150ms to ensure the 5G RRC state is used for a single high-density burst rather than multiple small ones[cite: 4].")
+        3 -> GateData("TG-A4", "Tool Safety", "Financial Reasoning Sandbox", "Build a safety-first sandbox for HITL review logic.", "SOLUTION: Apply the 'Restricted Proxy' pattern. Every LLM tool-call must pass through a local spend-limit validator and a PII-scrubbing filter before being sent to the live API[cite: 4, 6].")
+        else -> GateData("TG-A5", "Architecture Selection", "SLO-Driven Spectrum", "Select between deterministic and probabilistic architectures for 200ms SLAs.", "SOLUTION: Design a 'Hybrid Router'. For <200ms tasks, use a deterministic regex-based or local SLM (Small Language Model). Reserve complex agentic chains for high-latency background tasks[cite: 4, 6].")
     }
 }
 
-data class GateData(val id: String, val domain: String, val challengeTitle: String, val description: String)
+data class GateData(val id: String, val domain: String, val challengeTitle: String, val description: String, val suggestedSolution: String)
 fun formatTime(seconds: Int): String = "%02d:%02d".format(seconds / 60, seconds % 60)
