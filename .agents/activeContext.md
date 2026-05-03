@@ -9,7 +9,7 @@
 *   [x] Implement HNSW indexing ($O(d \cdot \log N)$) on talent embeddings[cite: 2].
 
 ## Deployment Status
-*   **[STATUS: PASSIVE MONITORING - HUMAN LEAD]** Standing by and restricted from autonomous modifications. Silently tracking internal context.
+*   **[STATUS: STANDBY MODE]** Manual UI updates reconciled. Durable trajectory sync confirmed. Holding station in offline-first readiness.
 
 ## Decisions & Rationale
 *   **Decision**: Using Google Antigravity as the primary orchestration platform.
