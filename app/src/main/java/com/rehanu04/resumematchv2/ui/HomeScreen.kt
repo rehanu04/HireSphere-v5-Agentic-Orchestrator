@@ -49,8 +49,10 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * HireSphere v5 - Master System UI
- * Persona Architecture: [Cyan/Black] vs [Vivid Gold/Black]
+ * HireSphere v5 - Master Home System
+ * Visual Identity: Atmospheric Kinetic Lamp (Calibrated 3:5)
+ * Persona: [Night/Cyan/Charcoal] vs [Vivid/Gold/Bronze]
+ * Engineered by MasterR Labs
  */
 
 private data class OrbitalFeature(
@@ -63,67 +65,68 @@ private data class OrbitalFeature(
 
 @Composable
 fun HomeScreen(
-    isDark: Boolean, // Night/Cyan (true) | Gold/Black (false)
+    isDark: Boolean, // isDark = Cyan/Night | !isDark = Gold/Vibrant
     onToggleTheme: (Boolean) -> Unit,
     onNavigateToAnalyze: () -> Unit,
     onNavigateToCreate: () -> Unit,
     onNavigateToVault: () -> Unit,
-    onNavigateToInterviewHub: () -> Unit
+    onNavigateToInterviewHub: () -> Unit,
+    onNavigateToGauntlet: () -> Unit
 ) {
-    // --- 1. SYSTEM UI ADJUSTMENT ---
     val view = LocalView.current
+    val coroutineScope = rememberCoroutineScope()
+
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            // Icons always light because background is always dark
+            // Icons always white on black background
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
     }
 
-    // --- 2. LUXURY PERSONA PALETTE ---
-    val bgColor = Color(0xFF030303) // Pitch Black Luxury
-    val cardColor = Color(0xFF0B0B0B) // Subtle Card Elevation
-    val textColor = Color.White
+    // --- LUXURY PERSONA PALETTE ---
+    val bgColor = Color(0xFF030303)
+    val cardColor = Color(0xFF0C0C0C)
 
-    // Theme Accents: Cyan vs High-Saturation Gold
+    // Adaptive Material Design:
+    // In Gold mode, top is warm champagne, bottom is deep bronze to make the LED line stand out.
     val accentColor = if (isDark) Color(0xFF22D3EE) else Color(0xFFFFD700)
-    val tubeColor = if (isDark) accentColor else Color(0xFFFFE066)
-    val rayAlpha = if (isDark) 0.18f else 0.30f
+    val headColorTop = if (isDark) Color(0xFF4A5568) else Color(0xFFE6D2A5)
+    val headColorBottom = if (isDark) Color(0xFF1A1A1B) else Color(0xFF3E2723)
 
-    val animatedAccentColor by animateColorAsState(targetValue = accentColor, animationSpec = tween(1000), label = "accent")
-    val animatedTubeColor by animateColorAsState(targetValue = tubeColor, animationSpec = tween(1000), label = "tube")
+    val animatedAccentColor by animateColorAsState(targetValue = accentColor, animationSpec = tween(1000))
+    val animHeadTop by animateColorAsState(targetValue = headColorTop, animationSpec = tween(1000))
+    val animHeadBottom by animateColorAsState(targetValue = headColorBottom, animationSpec = tween(1000))
 
-    // --- 3. SYSTEM MODULES ---
     val features = remember {
         listOf(
             OrbitalFeature(0, "Analyze Engine", "Intelligent JD Alignment & ATS Verification.", Icons.Filled.AutoAwesome, onNavigateToAnalyze),
-            OrbitalFeature(1, "Live Interview", "Voice-adaptive technical stress-test simulation.", Icons.Filled.Mic, onNavigateToInterviewHub),
-            OrbitalFeature(2, "Resume Builder", "Dynamic Vault-to-PDF generation sequence.", Icons.Default.Edit, onNavigateToCreate),
-            OrbitalFeature(3, "Master Vault", "Central decentralized skill repository.", Icons.Filled.Storage, onNavigateToVault)
+            OrbitalFeature(1, "Live Interview", "Voice-adaptive technical simulations.", Icons.Filled.Mic, onNavigateToInterviewHub),
+            OrbitalFeature(2, "Resume Builder", "Dynamic Vault-to-PDF generation.", Icons.Default.Edit, onNavigateToCreate),
+            OrbitalFeature(3, "Master Vault", "Central decentralized skill repository.", Icons.Filled.Storage, onNavigateToVault),
+            OrbitalFeature(4, "2026 Gauntlet", "Start 2026 Recruitment Gauntlet.", Icons.Filled.Security, onNavigateToGauntlet)
         )
     }
 
     var activeFeatureId by remember { mutableStateOf<Int?>(null) }
+    var manualRotateOffset by remember { mutableStateOf(0f) }
 
-    // --- 4. ENGINE ANIMATION KINETICS ---
     val infiniteTransition = rememberInfiniteTransition(label = "core_engine")
-    val orbitAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(50000, easing = LinearEasing), // Slow, cinematic orbit
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
+    val swingRotation by infiniteTransition.animateFloat(
+        initialValue = -5f, targetValue = 5f,
+        animationSpec = infiniteRepeatable(tween(4200, easing = SineEaseInOut), RepeatMode.Reverse),
+        label = "swing"
+    )
+
+    val autoOrbitAngle by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(55000, easing = LinearEasing), RepeatMode.Restart),
+        label = "orbit"
     )
 
     val corePulse by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
+        initialValue = 1f, targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(2500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse"
     )
 
@@ -135,28 +138,51 @@ fun HomeScreen(
                 activeFeatureId = null
             }
     ) {
-        // --- 5. ENLARGED GEOMETRIC LAMP (Anchored below subtitle) ---
-        // Length tuned to exceed the "HireSphere" text width (approx 65% of screen)
-        StudioSpotlightCanvas(
-            accentColor = animatedAccentColor,
-            tubeColor = animatedTubeColor,
-            rayAlpha = rayAlpha
-        )
+        // --- 1. ATMOSPHERIC FADE GLOW (STATIC DEPTH) ---
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        animatedAccentColor.copy(alpha = if (isDark) 0.08f else 0.07f),
+                        Color.Transparent
+                    ),
+                    center = Offset(size.width / 2, 180.dp.toPx()),
+                    radius = size.height * 1.2f
+                )
+            )
+        }
 
-        // --- 6. POSITIONED EXECUTIVE HEADER ---
-        // Shifted further down as requested to balance with the lamp
+        // --- 2. ADAPTIVE KINETIC LAMP ---
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.6f)
+                .graphicsLayer {
+                    rotationZ = swingRotation
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                }
+        ) {
+            AdaptiveStudioLamp(
+                accentColor = animatedAccentColor,
+                headTop = animHeadTop,
+                headBottom = animHeadBottom,
+                isDark = isDark
+            )
+        }
+
+        // --- 3. FIXED BRANDING (ELEVATED TO 160.dp) ---
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 60.dp), // Increased vertical padding
+                .padding(top = 160.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = "HireSphere",
-                fontSize = 42.sp,
+                fontSize = 44.sp,
                 fontWeight = FontWeight.Black,
-                color = textColor,
+                color = Color.White,
                 letterSpacing = (-2).sp,
                 textAlign = TextAlign.Center
             )
@@ -167,22 +193,27 @@ fun HomeScreen(
                 color = animatedAccentColor,
                 letterSpacing = 6.sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 6.dp)
+                modifier = Modifier.padding(top = 2.dp)
             )
         }
 
-        // --- 7. RADIAL ORBITAL ENGINE ---
-        val orbitRadiusDp = 150.dp
+        // --- 4. RADIAL ORBITAL ENGINE (ELEVATED 310.dp) ---
+        val orbitRadiusDp = 140.dp
         val density = LocalDensity.current
         val orbitRadiusPx = with(density) { orbitRadiusDp.toPx() }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 160.dp), // Pushed down to clear the header area
+                .padding(top = 310.dp)
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        manualRotateOffset += (dragAmount.x / 4.5f)
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
-            // Mechanical Track
             Surface(
                 modifier = Modifier.size(orbitRadiusDp * 2),
                 shape = CircleShape,
@@ -190,32 +221,29 @@ fun HomeScreen(
                 border = BorderStroke(1.dp, animatedAccentColor.copy(alpha = 0.08f))
             ) {}
 
-            // Pulsing AI Hub
             Box(
-                modifier = Modifier
-                    .size(95.dp)
-                    .scale(corePulse),
+                modifier = Modifier.size(80.dp).scale(corePulse),
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
-                    modifier = Modifier.size(68.dp),
+                    modifier = Modifier.size(60.dp),
                     shape = CircleShape,
                     color = cardColor,
-                    border = BorderStroke(1.5.dp, animatedAccentColor.copy(alpha = 0.6f)),
-                    shadowElevation = 20.dp
+                    border = BorderStroke(1.5.dp, animatedAccentColor.copy(alpha = 0.5f)),
+                    shadowElevation = 12.dp
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.SettingsSystemDaydream,
                             contentDescription = null,
                             tint = animatedAccentColor,
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                 }
             }
 
-            // Satellite Features
+            // Orbital Features with Manual Control
             features.forEachIndexed { index, feature ->
                 val isActive = activeFeatureId == feature.id
                 val isDimmed = activeFeatureId != null && !isActive
@@ -224,16 +252,16 @@ fun HomeScreen(
                     modifier = Modifier
                         .graphicsLayer {
                             val baseAngle = (index * (360f / features.size))
-                            val currentAngleRad = Math.toRadians((baseAngle + orbitAngle).toDouble())
+                            val currentAngleRad = Math.toRadians((baseAngle + autoOrbitAngle + manualRotateOffset).toDouble())
 
                             translationX = (cos(currentAngleRad) * orbitRadiusPx).toFloat()
                             translationY = (sin(currentAngleRad) * orbitRadiusPx).toFloat()
 
-                            scaleX = if (isActive) 1.25f else 1f
-                            scaleY = if (isActive) 1.25f else 1f
+                            scaleX = if (isActive) 1.2f else 1f
+                            scaleY = if (isActive) 1.2f else 1f
                             alpha = if (isDimmed) 0.5f else 1f
                         }
-                        .size(85.dp),
+                        .size(80.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -243,24 +271,23 @@ fun HomeScreen(
                         }
                     ) {
                         Surface(
-                            modifier = Modifier.size(56.dp),
+                            modifier = Modifier.size(52.dp),
                             shape = CircleShape,
                             color = if (isActive) animatedAccentColor else cardColor,
                             border = BorderStroke(1.2.dp, animatedAccentColor.copy(alpha = 0.4f)),
-                            shadowElevation = if (isActive) 16.dp else 4.dp
+                            shadowElevation = if (isActive) 12.dp else 4.dp
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = feature.icon,
                                     contentDescription = null,
                                     tint = if (isActive) Color.Black else Color.White,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
-
                         if (!isDimmed) {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = feature.title,
                                 color = Color.White,
@@ -274,128 +301,157 @@ fun HomeScreen(
             }
         }
 
-        // --- 8.bottom ACTION INTERFACE ---
+        // --- 5. BOTTOM ACTION INTERFACE ---
         AnimatedVisibility(
             visible = activeFeatureId != null,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(24.dp)
+                .padding(horizontal = 24.dp, vertical = 24.dp)
                 .navigationBarsPadding()
         ) {
-            val currentFeature = features.find { it.id == activeFeatureId }
-            if (currentFeature != null) {
+            val feature = features.find { it.id == activeFeatureId }
+            if (feature != null) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedCornerShape(24.dp),
                     color = cardColor,
-                    border = BorderStroke(1.dp, animatedAccentColor.copy(alpha = 0.25f)),
+                    border = BorderStroke(1.dp, animatedAccentColor.copy(alpha = 0.2f)),
                     shadowElevation = 32.dp
                 ) {
-                    Column(modifier = Modifier.padding(28.dp)) {
+                    Column(modifier = Modifier.padding(24.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 color = animatedAccentColor.copy(alpha = 0.15f),
-                                modifier = Modifier.size(46.dp)
+                                modifier = Modifier.size(40.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(currentFeature.icon, null, tint = animatedAccentColor, modifier = Modifier.size(26.dp))
+                                    Icon(feature.icon, null, tint = animatedAccentColor, modifier = Modifier.size(22.dp))
                                 }
                             }
-                            Spacer(modifier = Modifier.width(16.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = currentFeature.title,
+                                text = feature.title,
                                 color = Color.White,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Black
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.ExtraBold
                             )
                         }
-
                         Text(
-                            text = currentFeature.description,
+                            text = feature.description,
                             color = Color.Gray,
                             fontSize = 15.sp,
-                            lineHeight = 22.sp,
-                            modifier = Modifier.padding(vertical = 24.dp)
+                            modifier = Modifier.padding(vertical = 16.dp)
                         )
-
                         Button(
                             onClick = {
                                 activeFeatureId = null
-                                currentFeature.onClick()
+                                feature.onClick()
                             },
-                            modifier = Modifier.fillMaxWidth().height(62.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = animatedAccentColor),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
+                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = animatedAccentColor)
                         ) {
                             Text("INITIALIZE SEQUENCE", color = Color.Black, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Icon(Icons.Default.ArrowForward, null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(Icons.Default.ArrowForward, null, tint = Color.Black, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
             }
         }
 
-        // --- 9. THE PHYSICS PULL SWITCH ---
+        // --- 6. THE PHYSICS PULL SWITCH ---
         LampPullChain(isDark = isDark, onToggleTheme = onToggleTheme, accentColor = animatedAccentColor)
     }
 }
 
 // -----------------------------
-// WIDE GEOMETRIC SPOTLIGHT
+// ADAPTIVE KINETIC LAMP
 // -----------------------------
 @Composable
-private fun StudioSpotlightCanvas(accentColor: Color, tubeColor: Color, rayAlpha: Float) {
+private fun AdaptiveStudioLamp(accentColor: Color, headTop: Color, headBottom: Color, isDark: Boolean) {
     Canvas(modifier = Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
+        val centerX = w / 2f
+        val wireTopY = 0f
 
-        // Anchored 180dp down (below the title/subtitle group)
-        val tubeY = 520f
-        val tubeWidth = w * 0.65f // Spans wider than the title "HireSphere"
-        val tubeStartX = (w - tubeWidth) / 2f
-        val tubeEndX = tubeStartX + tubeWidth
+        val lampHeadTopY = 80.dp.toPx()
+        val headWidthTop = 91.dp.toPx()
+        val headWidthBottom = w * 0.48f
+        val headHeight = 96.dp.toPx()
 
-        // 1. Draw physical Tube
+        // 1. Hanging Wire
         drawLine(
-            color = tubeColor,
-            start = Offset(tubeStartX, tubeY),
-            end = Offset(tubeEndX, tubeY),
-            strokeWidth = 4.5.dp.toPx(),
+            color = Color.White.copy(alpha = 0.3f),
+            start = Offset(centerX, wireTopY),
+            end = Offset(centerX, lampHeadTopY),
+            strokeWidth = 2.dp.toPx(),
             cap = StrokeCap.Round
         )
 
-        // 2. Parabolic/Angular Ray Spread
-        val beamPath = Path().apply {
-            moveTo(tubeStartX + 12f, tubeY)
-            lineTo(tubeEndX - 12f, tubeY)
-            // Properly spreads downward to engulf the orbital engine
-            lineTo(w * 0.95f, h * 0.8f)
-            lineTo(w * 0.05f, h * 0.8f)
+        // 2. Head (Adaptive Metallic Fading Gradient)
+        val headPath = Path().apply {
+            moveTo(centerX - headWidthTop / 2, lampHeadTopY)
+            lineTo(centerX + headWidthTop / 2, lampHeadTopY)
+            lineTo(centerX + headWidthBottom / 2, lampHeadTopY + headHeight)
+            lineTo(centerX - headWidthBottom / 2, lampHeadTopY + headHeight)
             close()
         }
-
         drawPath(
-            path = beamPath,
+            path = headPath,
             brush = Brush.verticalGradient(
-                colors = listOf(accentColor.copy(alpha = rayAlpha), Color.Transparent),
-                startY = tubeY,
-                endY = h * 0.8f
+                colors = listOf(headTop, headBottom), // headBottom is much darker now
+                startY = lampHeadTopY,
+                endY = lampHeadTopY + headHeight
             )
         )
 
-        // 3. Wide Focus Glow
-        drawRect(
-            brush = Brush.radialGradient(
-                colors = listOf(accentColor.copy(alpha = rayAlpha * 0.6f), Color.Transparent),
-                center = Offset(w / 2, tubeY),
-                radius = w * 0.7f
-            ),
-            size = size
+        // 3. MULTI-LAYER LED LINE (Distinguishable Visibility)
+        val lineY = lampHeadTopY + headHeight
+        // Layer A: Wide Soft Bloom
+        drawLine(
+            accentColor.copy(alpha = 0.5f),
+            Offset(centerX - (headWidthBottom / 2) + 6f, lineY),
+            Offset(centerX + (headWidthBottom / 2) - 6f, lineY),
+            10.dp.toPx(),
+            StrokeCap.Round
+        )
+        // Layer B: Sharp Neon Accent
+        drawLine(
+            accentColor,
+            Offset(centerX - (headWidthBottom / 2) + 12f, lineY),
+            Offset(centerX + (headWidthBottom / 2) - 12f, lineY),
+            4.dp.toPx(),
+            StrokeCap.Round
+        )
+        // Layer C: High-Energy White Core (Cuts through the Gold)
+        drawLine(
+            Color.White.copy(alpha = 0.8f),
+            Offset(centerX - (headWidthBottom / 2) + 20f, lineY),
+            Offset(centerX + (headWidthBottom / 2) - 20f, lineY),
+            1.5.dp.toPx(),
+            StrokeCap.Round
+        )
+
+        // 4. Parabolic Light Cone
+        val beamPath = Path().apply {
+            moveTo(centerX - headWidthBottom / 2 + 15f, lineY)
+            lineTo(centerX + headWidthBottom / 2 - 15f, lineY)
+            lineTo(centerX + w * 0.45f, h * 1.5f)
+            lineTo(centerX - w * 0.45f, h * 1.5f)
+            close()
+        }
+        drawPath(
+            path = beamPath,
+            brush = Brush.verticalGradient(
+                colors = listOf(accentColor.copy(alpha = if (isDark) 0.15f else 0.22f), Color.Transparent),
+                startY = lineY,
+                endY = h * 1.2f
+            )
         )
     }
 }
@@ -418,60 +474,33 @@ private fun LampPullChain(isDark: Boolean, onToggleTheme: (Boolean) -> Unit, acc
     val linkColor = Color.White.copy(alpha = 0.35f)
 
     Canvas(modifier = Modifier.fillMaxSize()) {
-        drawLine(
-            linkColor,
-            Offset(anchorX, anchorY),
-            Offset(anchorX + pullOffset.value.x, anchorY + restLength + pullOffset.value.y),
-            2.5.dp.toPx(),
-            StrokeCap.Round
-        )
+        drawLine(linkColor, Offset(anchorX, anchorY), Offset(anchorX + pullOffset.value.x, anchorY + restLength + pullOffset.value.y), 2.5.dp.toPx(), StrokeCap.Round)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Surface(
             modifier = Modifier
-                .offset {
-                    IntOffset(
-                        (anchorX + pullOffset.value.x - 24.dp.toPx()).roundToInt(),
-                        (anchorY + restLength + pullOffset.value.y - 24.dp.toPx()).roundToInt()
-                    )
-                }
+                .offset { IntOffset((anchorX + pullOffset.value.x - 24.dp.toPx()).roundToInt(), (anchorY + restLength + pullOffset.value.y - 24.dp.toPx()).roundToInt()) }
                 .size(48.dp)
                 .pointerInput(Unit) {
                     detectDragGestures(
-                        onDragEnd = {
-                            hasToggled = false
-                            coroutineScope.launch { pullOffset.animateTo(Offset.Zero, spring(0.35f, Spring.StiffnessLow)) }
-                        },
-                        onDragCancel = {
-                            hasToggled = false
-                            coroutineScope.launch { pullOffset.animateTo(Offset.Zero, spring(0.35f, Spring.StiffnessLow)) }
-                        },
+                        onDragEnd = { hasToggled = false; coroutineScope.launch { pullOffset.animateTo(Offset.Zero, spring(0.35f, Spring.StiffnessLow)) } },
+                        onDragCancel = { hasToggled = false; coroutineScope.launch { pullOffset.animateTo(Offset.Zero, spring(0.35f, Spring.StiffnessLow)) } },
                         onDrag = { _, amt ->
                             coroutineScope.launch {
-                                val next = pullOffset.value + amt
-                                pullOffset.snapTo(next)
-                                if (next.getDistance() > 160f && !hasToggled) {
-                                    currentOnToggle(!currentIsDark)
-                                    hasToggled = true
-                                }
+                                val next = pullOffset.value + amt; pullOffset.snapTo(next)
+                                if (next.getDistance() > 160f && !hasToggled) { currentOnToggle(!currentIsDark); hasToggled = true }
                             }
                         }
                     )
                 },
-            shape = CircleShape,
-            color = Color(0xFF151515),
-            border = BorderStroke(1.2.dp, linkColor),
-            shadowElevation = 8.dp
+            shape = CircleShape, color = Color(0xFF151515), border = BorderStroke(1.2.dp, linkColor), shadowElevation = 8.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = if (isDark) Icons.Default.DarkMode else Icons.Default.Lightbulb,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(24.dp)
-                )
+                Icon(if (isDark) Icons.Default.DarkMode else Icons.Default.Lightbulb, null, tint = accentColor, modifier = Modifier.size(24.dp))
             }
         }
     }
 }
+
+private val SineEaseInOut = Easing { fraction -> -0.5f * (cos(Math.PI * fraction.toDouble()) - 1f).toFloat() }

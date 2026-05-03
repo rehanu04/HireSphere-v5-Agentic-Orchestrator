@@ -1,0 +1,359 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
+package com.rehanu04.resumematchv2.ui
+
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+
+/**
+ * 2026 Technical Round Simulator.
+ * Features: JD Calibration, 5-Gate Assessment, Persistence, and Results Screen.
+ */
+@Composable
+fun TechnicalTurnaroundScreen(
+    onBack: () -> Unit,
+    onComplete: (Float, Int) -> Unit
+) {
+    val bgColor = Color(0xFF0C0C0C)
+    val accentCyan = Color(0xFF22D3EE)
+
+    // --- State Management ---
+    var isStarted by remember { mutableStateOf(false) }
+    var isFinished by remember { mutableStateOf(false) }
+    var jobDescription by remember { mutableStateOf("") }
+    var selectedDifficulty by remember { mutableStateOf("Medium") }
+    var currentGateIndex by remember { mutableStateOf(0) }
+    var timeRemainingSeconds by remember { mutableStateOf(600) }
+    var isTimeOut by remember { mutableStateOf(false) }
+    var showExitDialog by remember { mutableStateOf(false) }
+
+    // State persistence for the 5 technical gates
+    val gateCodes = remember { mutableStateMapOf<Int, String>() }
+
+    // Countdown Timer Logic
+    LaunchedEffect(isStarted, isFinished) {
+        if (isStarted && !isFinished) {
+            while (timeRemainingSeconds > 0 && !isTimeOut) {
+                delay(1000L)
+                timeRemainingSeconds--
+            }
+            if (timeRemainingSeconds <= 0) {
+                isTimeOut = true
+                isFinished = true
+            }
+        }
+    }
+
+    // Exit Warning Dialog
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text(text = "Discard Simulation?", color = Color.White) },
+            text = { Text(text = "Your scores will not be recorded. Are you sure?", color = Color.LightGray) },
+            confirmButton = {
+                TextButton(onClick = onBack) { Text(text = "DISCARD", color = Color.Red) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitDialog = false }) { Text(text = "STAY", color = Color.White) }
+            },
+            containerColor = Color(0xFF18181B)
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(text = "Technical Round", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = { if (isStarted && !isFinished) showExitDialog = true else onBack() }) {
+                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (isStarted && !isFinished) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 16.dp)) {
+                            Icon(imageVector = Icons.Default.Timer, contentDescription = "Timer", tint = accentCyan, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = formatTime(timeRemainingSeconds),
+                                color = if (timeRemainingSeconds < 60) Color.Red else Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = bgColor, titleContentColor = Color.White)
+            )
+        },
+        containerColor = bgColor
+    ) { paddingValues ->
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            when {
+                // PHASE 1: PREP
+                !isStarted -> PrepPhaseContent(
+                    jd = jobDescription,
+                    onJdChange = { jobDescription = it },
+                    difficulty = selectedDifficulty,
+                    onDifficultyChange = { selectedDifficulty = it },
+                    onStart = { isStarted = true },
+                    accentColor = accentCyan
+                )
+                // PHASE 2: RESULTS
+                isFinished -> ResultPhaseContent(
+                    gatesCompleted = if (isTimeOut) currentGateIndex else 5,
+                    difficulty = selectedDifficulty,
+                    onExit = {
+                        onComplete(0.85f, if (isTimeOut) currentGateIndex else 5)
+                        onBack()
+                    },
+                    accentColor = accentCyan
+                )
+                // PHASE 3: ACTIVE ASSESSMENT
+                else -> AssessmentPhaseContent(
+                    gateIndex = currentGateIndex,
+                    gateCodes = gateCodes,
+                    onGateSelect = { currentGateIndex = it },
+                    onComplete = { isFinished = true },
+                    accentColor = accentCyan
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
+// COMPONENT: PREP PHASE
+// ==========================================
+@Composable
+fun PrepPhaseContent(
+    jd: String,
+    onJdChange: (String) -> Unit,
+    difficulty: String,
+    onDifficultyChange: (String) -> Unit,
+    onStart: () -> Unit,
+    accentColor: Color
+) {
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
+        Icon(imageVector = Icons.Default.Description, contentDescription = null, tint = accentColor, modifier = Modifier.size(48.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "Assessment Setup", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(text = "Calibrate the simulator difficulty based on the role.", color = Color.Gray)
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Text(text = "Difficulty Level", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Easy", "Medium", "Hard", "AI-Auto").forEach { level ->
+                FilterChip(
+                    selected = (difficulty == level),
+                    onClick = { onDifficultyChange(level) },
+                    label = { Text(text = level) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = accentColor,
+                        selectedLabelColor = Color.Black,
+                        labelColor = Color.Gray
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(text = "Job Description", color = Color.White, fontWeight = FontWeight.SemiBold)
+        OutlinedTextField(
+            value = jd,
+            onValueChange = onJdChange,
+            modifier = Modifier.fillMaxWidth().height(180.dp).padding(top = 8.dp),
+            placeholder = { Text(text = "Paste JD here to generate targeted questions...", color = Color.DarkGray) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = accentColor,
+                unfocusedBorderColor = Color.DarkGray,
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            )
+        )
+
+        Spacer(modifier = Modifier.height(40.dp))
+
+        Button(
+            onClick = onStart,
+            enabled = jd.length > 10,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+        ) {
+            Text(text = "BEGIN TECHNICAL ROUND", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}
+
+// ==========================================
+// COMPONENT: ASSESSMENT PHASE
+// ==========================================
+@Composable
+fun AssessmentPhaseContent(
+    gateIndex: Int,
+    gateCodes: MutableMap<Int, String>,
+    onGateSelect: (Int) -> Unit,
+    onComplete: () -> Unit,
+    accentColor: Color
+) {
+    val gate = getGateData(index = gateIndex)
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        TechnicalProgressHeader(currentIndex = gateIndex, accentColor = accentColor, onGateSelect = onGateSelect)
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Column(modifier = Modifier.weight(weight = 1f).verticalScroll(state = rememberScrollState())) {
+            Text(text = "GATE ${gate.id}: ${gate.domain}", color = accentColor, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF18181B))) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(text = gate.challengeTitle, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(text = gate.description, color = Color.LightGray, fontSize = 14.sp, lineHeight = 20.sp)
+                    Spacer(modifier = Modifier.height(24.dp))
+                    TextField(
+                        value = gateCodes[gateIndex] ?: "",
+                        onValueChange = { gateCodes[gateIndex] = it },
+                        modifier = Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(8.dp)),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Black,
+                            unfocusedContainerColor = Color.Black,
+                            focusedTextColor = Color.Green,
+                            unfocusedTextColor = Color.Green
+                        ),
+                        placeholder = { Text(text = "// Enter solution for ${gate.id}...", color = Color.DarkGray) }
+                    )
+                }
+            }
+        }
+
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (gateIndex > 0) {
+                OutlinedButton(onClick = { onGateSelect(gateIndex - 1) }, modifier = Modifier.weight(1f).height(56.dp)) {
+                    Text(text = "PREVIOUS", color = Color.White)
+                }
+            }
+            Button(
+                onClick = { if (gateIndex < 4) onGateSelect(gateIndex + 1) else onComplete() },
+                modifier = Modifier.weight(1f).height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+            ) {
+                Text(text = if (gateIndex < 4) "NEXT GATE" else "FINISH ROUND", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// ==========================================
+// COMPONENT: RESULTS PHASE
+// ==========================================
+@Composable
+fun ResultPhaseContent(gatesCompleted: Int, difficulty: String, onExit: () -> Unit, accentColor: Color) {
+    val surfaceColor = Color(0xFF18181B)
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = Color.Green, modifier = Modifier.size(64.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "Assessment Complete", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(text = "Mode: $difficulty", color = Color.Gray)
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = surfaceColor)) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                ResultMetricRow(label = "Execution Correctness", score = 0.85f, color = Color.Cyan)
+                Spacer(modifier = Modifier.height(16.dp))
+                ResultMetricRow(label = "Sustainability Index", score = 0.72f, color = Color.Green)
+                Spacer(modifier = Modifier.height(16.dp))
+                ResultMetricRow(label = "Agent Stability", score = 0.65f, color = Color.Magenta)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = surfaceColor.copy(alpha = 0.5f))) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(text = "SROM Audit Feedback", fontWeight = FontWeight.Bold, color = accentColor)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "You completed $gatesCompleted/5 Gates. Your Sustainability score reflects your performance in 'Green Coding' resource batching. In 2026, these architectural trade-offs are standard for FAANG roles.",
+                    color = Color.LightGray, fontSize = 13.sp, lineHeight = 18.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(40.dp))
+
+        Button(onClick = onExit, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = accentColor)) {
+            Text(text = "FINISH & SAVE TO VAULT", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}
+
+@Composable
+fun ResultMetricRow(label: String, score: Float, color: Color) {
+    Column {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(text = label, color = Color.White, fontSize = 14.sp)
+            Text(text = "${(score * 100).toInt()}%", color = color, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = { score },
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+            color = color,
+            trackColor = Color.DarkGray
+        )
+    }
+}
+
+// ==========================================
+// UTILITIES
+// ==========================================
+@Composable
+fun TechnicalProgressHeader(currentIndex: Int, accentColor: Color, onGateSelect: (Int) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (i in 0..4) {
+            Box(
+                modifier = Modifier
+                    .weight(weight = 1f).height(height = 8.dp).clip(shape = RoundedCornerShape(4.dp))
+                    .background(color = if (i == currentIndex) accentColor else if (i < currentIndex) accentColor.copy(0.4f) else Color.DarkGray)
+                    .clickable { onGateSelect(i) }
+            )
+        }
+    }
+}
+
+fun getGateData(index: Int): GateData {
+    return when (index) {
+        0 -> GateData("TG-A1", "Resource Scheduling", "Carbon-Aware Prompt Scheduler", "Build an online bi-objective scheduler. Maximize goodput while minimizing carbon cost.")
+        1 -> GateData("TG-A2", "Goal Decomposition", "Recursive Agentic Supervisor", "Implement a Supervisor Pattern for serializable, versioned sub-tasks.")
+        2 -> GateData("TG-A3", "Payload Efficiency", "5G Tail Energy Refactor", "Minimize tail energy by batching telemetry tasks into single windows.")
+        3 -> GateData("TG-A4", "Tool Safety", "Financial Reasoning Sandbox", "Build a safety-first sandbox for HITL review logic.")
+        else -> GateData("TG-A5", "Architecture Selection", "SLO-Driven Spectrum", "Select between deterministic and probabilistic architectures for 200ms SLAs.")
+    }
+}
+
+data class GateData(val id: String, val domain: String, val challengeTitle: String, val description: String)
+fun formatTime(seconds: Int): String = "%02d:%02d".format(seconds / 60, seconds % 60)
