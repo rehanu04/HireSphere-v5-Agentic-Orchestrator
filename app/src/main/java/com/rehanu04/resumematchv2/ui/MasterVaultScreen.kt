@@ -63,12 +63,18 @@ private val YEAR_OPTIONS = (Calendar.getInstance().get(Calendar.YEAR) + 5 downTo
 // ==========================================
 @Composable
 fun KineticBackground(accentColor: Color) {
+    val infiniteTransition = rememberInfiniteTransition(label = "vault_bg")
+    val animOffset by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1000f,
+        animationSpec = infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Restart), label = "offset"
+    )
+
     Canvas(modifier = Modifier.fillMaxSize()) {
         drawRect(Color(0xFF030303))
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(accentColor.copy(alpha = 0.12f), Color.Transparent),
-                center = Offset(size.width / 2, size.height * 0.2f),
+                center = Offset(size.width / 2 + (animOffset % 100 - 50), size.height * 0.2f),
                 radius = size.width * 1.5f
             )
         )
@@ -177,7 +183,7 @@ fun ExpandableVaultSection(
                 )
             }
             if (expanded) {
-                Box(modifier = Modifier.padding(horizontal = 20.dp, bottom = 20.dp)) { content() }
+                Box(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 20.dp)) { content() }
             }
         }
     }
@@ -221,8 +227,8 @@ fun MasterVaultScreen(
     } catch (e: Exception) { emptyList() }
 
     // --- State Management (FIXED TYPE INFERENCE) ---
-    var editingProjectIndex by remember { mutableStateOf<Int>(-1) }
-    var editingExperienceIndex by remember { mutableStateOf<Int>(-1) }
+    var editingProjectIndex: Int by remember { mutableIntStateOf(-1) }
+    var editingExperienceIndex: Int by remember { mutableIntStateOf(-1) }
     var tempProject by remember { mutableStateOf(VaultProject()) }
     var tempExperience by remember { mutableStateOf(VaultExperience()) }
     var expandedSkills by remember { mutableStateOf(true) }
@@ -335,7 +341,7 @@ fun MasterVaultScreen(
                     }
 
                     item {
-                        VaultServiceCard("AI Career Insights", "Deep analysis against target roles.", Icons.Filled.AutoAwesome, Color(0xFF6366F1), analyzeVault)
+                        VaultServiceCard("AI Career Insights", "Deep analysis against target roles.", Icons.Filled.AutoAwesome, Color(0xFF6366F1), { analyzeVault() })
                         Spacer(Modifier.height(12.dp))
                         VaultServiceCard("AI Mock Interview", "Behavioral & Tech simulation.", Icons.Filled.Mic, Color(0xFF8B5CF6), onGoToInterview)
                         Spacer(Modifier.height(12.dp))
@@ -352,7 +358,7 @@ fun MasterVaultScreen(
                                                 Surface(
                                                     shape = RoundedCornerShape(16.dp), color = accentCyan.copy(alpha = 0.1f), modifier = Modifier.weight(1f)
                                                 ) {
-                                                    Row(Modifier.padding(12.dp), Alignment.CenterVertically) {
+                                                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                                         Text(skill, color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                         Icon(Icons.Filled.Close, null, modifier = Modifier.size(16.dp).clickable {
                                                             val oldList = vaultSkills; val newList = vaultSkills.filter { it != skill }
@@ -423,7 +429,7 @@ fun MasterVaultScreen(
                             colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
                             shape = RoundedCornerShape(16.dp)
                         ) {
-                            Row(Modifier.padding(16.dp), Alignment.CenterVertically) {
+                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Filled.Info, null, tint = accentCyan)
                                 Spacer(Modifier.width(12.dp))
                                 Text("Education & Awards are managed directly in the Resume Builder!", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
@@ -444,11 +450,11 @@ fun MasterVaultScreen(
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = tempProject.name, onValueChange = { tempProject = tempProject.copy(name = it) }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
-                    Row(Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SelectionField("Start M", tempProject.startMonth, MONTH_OPTIONS, { tempProject = tempProject.copy(startMonth = it) }, Modifier.weight(1f))
                         SelectionField("Start Y", tempProject.startYear, YEAR_OPTIONS, { tempProject = tempProject.copy(startYear = it) }, Modifier.weight(1f))
                     }
-                    Row(Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SelectionField("End M", tempProject.endMonth, endM, { tempProject = tempProject.copy(endMonth = it) }, Modifier.weight(1f))
                         SelectionField("End Y", tempProject.endYear, endY, { tempProject = tempProject.copy(endYear = it) }, Modifier.weight(1f))
                     }
@@ -471,11 +477,11 @@ fun MasterVaultScreen(
                 Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = tempExperience.company, onValueChange = { tempExperience = tempExperience.copy(company = it) }, label = { Text("Company") })
                     OutlinedTextField(value = tempExperience.role, onValueChange = { tempExperience = tempExperience.copy(role = it) }, label = { Text("Role") })
-                    Row(Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SelectionField("Start M", tempExperience.startMonth, MONTH_OPTIONS, { tempExperience = tempExperience.copy(startMonth = it) }, Modifier.weight(1f))
                         SelectionField("Start Y", tempExperience.startYear, YEAR_OPTIONS, { tempExperience = tempExperience.copy(startYear = it) }, Modifier.weight(1f))
                     }
-                    Row(Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SelectionField("End M", tempExperience.endMonth, endM, { tempExperience = tempExperience.copy(endMonth = it) }, Modifier.weight(1f))
                         SelectionField("End Y", tempExperience.endYear, endY, { tempExperience = tempExperience.copy(endYear = it) }, Modifier.weight(1f))
                     }
@@ -492,7 +498,7 @@ fun MasterVaultScreen(
     if (showAnalyticsDialog) {
         Dialog(onDismissRequest = { showAnalyticsDialog = false }) {
             Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF111111))) {
-                Column(Modifier.padding(24.dp), Alignment.CenterHorizontally) {
+                Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.AutoAwesome, null, modifier = Modifier.size(48.dp), tint = accentCyan)
                     Text("Career Insights", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
                     Spacer(Modifier.height(16.dp))
