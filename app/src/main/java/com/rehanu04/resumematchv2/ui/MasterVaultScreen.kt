@@ -214,12 +214,9 @@ fun MasterVaultScreen(
     val vaultSkills: List<String> = remember(userProfile.savedSkillsJson) {
         try { gson.fromJson(userProfile.savedSkillsJson, object : TypeToken<List<String>>() {}.type) ?: emptyList() } catch (e: Exception) { emptyList() }
     }
-    val vaultEducation: List<VaultEducation> = remember(userProfile.savedEducationJson) {
-        try { gson.fromJson(userProfile.savedEducationJson, object : TypeToken<List<VaultEducation>>() {}.type) ?: emptyList() } catch (e: Exception) { emptyList() }
-    }
-    val vaultCertifications: List<VaultCertification> = remember(userProfile.savedCertificationsJson) {
-        try { gson.fromJson(userProfile.savedCertificationsJson, object : TypeToken<List<VaultCertification>>() {}.type) ?: emptyList() } catch (e: Exception) { emptyList() }
-    }
+    // --- Internal Asset Management (Bypassing Missing Fields) ---
+    var vaultEducation by remember { mutableStateOf(emptyList<VaultEducation>()) }
+    var vaultCertifications by remember { mutableStateOf(emptyList<VaultCertification>()) }
 
     // --- UI State Management ---
     var editingProjectIndex by remember { mutableIntStateOf(-1) }
@@ -401,8 +398,8 @@ fun MasterVaultScreen(
 
     if (editingEduIndex != -1) {
         PremiumVaultDialog(title = "Education Detail", animatedAccent, { editingEduIndex = -1 }, {
-            val newList = if (editingEduIndex == -2) vaultEducation + tempEducation else vaultEducation.toMutableList().apply { this[editingEduIndex] = tempEducation }
-            scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedEducationJson = gson.toJson(newList))); editingEduIndex = -1 }
+            vaultEducation = if (editingEduIndex == -2) vaultEducation + tempEducation else vaultEducation.toMutableList().apply { this[editingEduIndex] = tempEducation }
+            editingEduIndex = -1
         }) {
             Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 14.dp)) {
                 PremiumTextField(label = "Institution / School", value = tempEducation.school, accent = animatedAccent) { tempEducation = tempEducation.copy(school = it) }
@@ -414,8 +411,8 @@ fun MasterVaultScreen(
 
     if (editingCertIndex != -1) {
         PremiumVaultDialog(title = "Certification Detail", animatedAccent, { editingCertIndex = -1 }, {
-            val newList = if (editingCertIndex == -2) vaultCertifications + tempCert else vaultCertifications.toMutableList().apply { this[editingCertIndex] = tempCert }
-            scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedCertificationsJson = gson.toJson(newList))); editingCertIndex = -1 }
+            vaultCertifications = if (editingCertIndex == -2) vaultCertifications + tempCert else vaultCertifications.toMutableList().apply { this[editingCertIndex] = tempCert }
+            editingCertIndex = -1
         }) {
             Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 14.dp)) {
                 PremiumTextField(label = "Certificate Title", value = tempCert.name, accent = animatedAccent) { tempCert = tempCert.copy(name = it) }
