@@ -2,16 +2,19 @@
 
 package com.rehanu04.resumematchv2.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -21,357 +24,280 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.rehanu04.resumematchv2.data.UserProfileStore
-import com.rehanu04.resumematchv2.util.SupabaseClient
-import com.rehanu04.resumematchv2.util.isOnline
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONObject
 import java.util.Calendar
-import java.util.concurrent.TimeUnit
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
+
+/**
+ * HireSphere v5 - Master Vault [Luxury Persona Edition].
+ * Features: High-fidelity Nebula Background, Physics-based Pull Switch, 
+ * and Durable Asset Management.
+ * 
+ * DESIGN SPEC: Orbit Orange Toggle & Galactic Cyan Accents.
+ */
 
 // --- DATA MODELS ---
-data class VaultProject(val name: String = "", val startMonth: String = "", val startYear: String = "", val endMonth: String = "", val endYear: String = "", val bullets: String = "")
-data class VaultExperience(val company: String = "", val role: String = "", val startMonth: String = "", val startYear: String = "", val endMonth: String = "", val endYear: String = "", val bullets: String = "")
+data class VaultProject(
+    val name: String = "", 
+    val startMonth: String = "Not set", 
+    val startYear: String = "Not set", 
+    val endMonth: String = "Not set", 
+    val endYear: String = "Not set", 
+    val bullets: String = ""
+)
 
-private val MONTH_OPTIONS = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
-private val YEAR_OPTIONS = (Calendar.getInstance().get(Calendar.YEAR) + 5 downTo 1980).map { it.toString() }
+data class VaultExperience(
+    val company: String = "", 
+    val role: String = "", 
+    val startMonth: String = "Not set", 
+    val startYear: String = "Not set", 
+    val endMonth: String = "Not set", 
+    val endYear: String = "Not set", 
+    val bullets: String = ""
+)
+
+data class VaultEducation(
+    val school: String = "", 
+    val degree: String = "", 
+    val year: String = "Year"
+)
+
+data class VaultCertification(
+    val name: String = "", 
+    val issuer: String = "", 
+    val year: String = "Year"
+)
+
+private val MONTH_OPTIONS = listOf("Not set", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+private val YEAR_OPTIONS = listOf("Not set") + (Calendar.getInstance().get(Calendar.YEAR) + 2 downTo 1980).map { it.toString() }
 
 // ==========================================
-// COMPONENT: KINETIC BACKGROUND
+// COMPONENT: DYNAMIC NEBULA CLOUD
 // ==========================================
 @Composable
-fun KineticBackground(accentColor: Color) {
-    val infiniteTransition = rememberInfiniteTransition(label = "vault_bg")
-    val animOffset by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 1000f,
-        animationSpec = infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Restart), label = "offset"
+fun KineticBackground(accentColor: Color, isDark: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "nebula_system")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 2f * Math.PI.toFloat(),
+        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 35000, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "phase"
+    )
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 1f, targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 6000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "pulse"
     )
 
+    val bgColor = if (isDark) Color(0xFF010103) else Color(0xFF06020A)
+
     Canvas(modifier = Modifier.fillMaxSize()) {
-        drawRect(Color(0xFF030303))
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(accentColor.copy(alpha = 0.12f), Color.Transparent),
-                center = Offset(size.width / 2 + (animOffset % 100 - 50), size.height * 0.2f),
-                radius = size.width * 1.5f
-            )
-        )
+        drawRect(color = bgColor)
+
+        // --- Core Soft Breathing Nebula Aura ---
+        drawNebulaCloud(accentColor.copy(alpha = 0.15f), phase, pulse, 0.5f, 0.4f, 1.4f)
+        
+        // --- Dispersing Nebula Wisps ---
+        drawNebulaCloud(accentColor.copy(alpha = 0.08f), phase * 0.7f, pulse * 0.9f, 0.3f, 0.7f, 0.9f)
+        drawNebulaCloud(accentColor.copy(alpha = 0.05f), phase * 1.2f, pulse * 1.1f, 0.7f, 0.2f, 1.1f)
+        
+        // --- Drift Layers (Luxury Parallax) ---
+        drawNebulaCloud(accentColor.copy(alpha = 0.03f), phase * 0.4f, 1f, 0.2f, 0.1f, 1.6f)
     }
 }
 
+private fun DrawScope.drawNebulaCloud(color: Color, phase: Float, pulse: Float, anchorX: Float, anchorY: Float, radiusFactor: Float) {
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(color, Color.Transparent),
+            center = Offset(
+                x = size.width * (anchorX + 0.15f * sin(phase.toDouble()).toFloat()),
+                y = size.height * (anchorY + 0.1f * cos(phase.toDouble()).toFloat())
+            ),
+            radius = size.width * radiusFactor * pulse
+        )
+    )
+}
+
 // ==========================================
-// COMPONENT: BOUNCY ACTION CARD
+// COMPONENT: GLOSSY BOUNCY CARD
 // ==========================================
 @Composable
 fun BouncyVaultCard(
-    title: String,
-    icon: ImageVector,
-    accentColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    title: String, icon: ImageVector, accentColor: Color, onClick: () -> Unit, modifier: Modifier = Modifier
 ) {
     var isPressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (isPressed) 0.94f else 1f, label = "scale")
-    val rotation by animateFloatAsState(if (isPressed) -1.5f else 0f, label = "rotation")
+    val scale by animateFloatAsState(targetValue = if (isPressed) 0.92f else 1f, label = "scale")
 
     Card(
         modifier = modifier
-            .height(110.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                rotationZ = rotation
-            }
-            .pointerInput(Unit) {
+            .height(height = 115.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .pointerInput(key1 = Unit) {
                 detectTapGestures(
-                    onPress = {
-                        isPressed = true
-                        try { awaitRelease() } finally { isPressed = false }
-                    },
+                    onPress = { isPressed = true; try { awaitRelease() } finally { isPressed = false } },
                     onTap = { onClick() }
                 )
             },
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0C0C0C)),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
-        shape = RoundedCornerShape(24.dp)
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF151515).copy(alpha = 0.85f)),
+        border = BorderStroke(width = 1.dp, color = accentColor.copy(alpha = 0.3f)),
+        shape = RoundedCornerShape(size = 28.dp)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(accentColor.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, null, tint = accentColor, modifier = Modifier.size(24.dp))
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-fun SelectionField(label: String, value: String, options: List<String>, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
-        OutlinedTextField(
-            value = value, onValueChange = {}, readOnly = true, label = { Text(label) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            modifier = Modifier.menuAnchor().fillMaxWidth(), singleLine = true
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { opt ->
-                DropdownMenuItem(text = { Text(opt) }, onClick = { onValueChange(opt); expanded = false })
-            }
-        }
-    }
-}
-
-@Composable
-fun ExpandableVaultSection(
-    title: String,
-    icon: ImageVector,
-    count: Int,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    content: @Composable () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
-        shape = RoundedCornerShape(24.dp)
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable { onToggle() }.padding(20.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(icon, null, tint = Color(0xFF22D3EE))
-                Spacer(Modifier.width(12.dp))
-                Text("$title ($count)", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Icon(
-                    if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = Color.Gray
+        Box(modifier = Modifier.fillMaxSize()) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(accentColor.copy(alpha = 0.1f), Color.Transparent),
+                        center = Offset(x = size.width * 0.2f, y = 0f), radius = size.width
+                    )
                 )
             }
-            if (expanded) {
-                Box(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 20.dp)) { content() }
+            Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Box(modifier = Modifier.size(size = 46.dp).background(color = accentColor.copy(alpha = 0.2f), shape = RoundedCornerShape(size = 14.dp)), contentAlignment = Alignment.Center) {
+                    Icon(imageVector = icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(size = 26.dp))
+                }
+                Spacer(modifier = Modifier.height(height = 10.dp))
+                Text(text = title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
     }
 }
 
+// ==========================================
+// MASTER VAULT SCREEN CORE
+// ==========================================
 @Composable
 fun MasterVaultScreen(
+    isDark: Boolean,
+    onToggleTheme: (Boolean) -> Unit,
     onBack: () -> Unit,
     onGoToInterview: () -> Unit = {},
     onGoToLiveVoice: () -> Unit = {},
     onGoToHistory: () -> Unit = {},
     onGoToStandings: () -> Unit = {},
-    userProfileStore: UserProfileStore,
-    apiBaseUrl: String = "https://resumematch-ai-backend.onrender.com"
+    onGoToAssistant: () -> Unit = {},
+    userProfileStore: UserProfileStore
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val gson = remember { Gson() }
     val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = com.rehanu04.resumematchv2.data.UserProfile())
-    val snackbarHostState = remember { SnackbarHostState() }
-    val accentCyan = Color(0xFF22D3EE)
 
-    // --- JSON Logic ---
-    val vaultProjects: List<VaultProject> = try {
-        val listTypeProj = object : TypeToken<List<VaultProject>>() {}.type
-        gson.fromJson<List<VaultProject>>(userProfile.savedProjectsJson, listTypeProj)?.filterNotNull()?.map {
-            it.copy(name = it.name ?: "Unknown Project")
-        } ?: emptyList()
-    } catch (e: Exception) { emptyList() }
+    // THEME: Galactic Cyan (Dark) vs Orbit Orange (Light/Alt)
+    val galacticCyan = Color(0xFF22D3EE)
+    val orbitOrange = Color(0xFFFF9F0A)
+    val accentColor = if (isDark) galacticCyan else orbitOrange
+    val animatedAccent by animateColorAsState(targetValue = accentColor, animationSpec = tween(durationMillis = 1200))
 
-    val vaultExperience: List<VaultExperience> = try {
-        val listTypeExp = object : TypeToken<List<VaultExperience>>() {}.type
-        gson.fromJson<List<VaultExperience>>(userProfile.savedExperienceJson, listTypeExp)?.filterNotNull()?.map {
-            it.copy(company = it.company ?: "Unknown Company", role = it.role ?: "Unknown Role")
-        } ?: emptyList()
-    } catch (e: Exception) { emptyList() }
-
-    val vaultSkills: List<String> = try {
-        val listTypeSkill = object : TypeToken<List<String>>() {}.type
-        gson.fromJson<List<String>>(userProfile.savedSkillsJson, listTypeSkill)?.filterNotNull()?.filter { it.isNotBlank() } ?: emptyList()
-    } catch (e: Exception) { emptyList() }
-
-    // --- State Management (FIXED TYPE INFERENCE) ---
-    var editingProjectIndex: Int by remember { mutableIntStateOf(-1) }
-    var editingExperienceIndex: Int by remember { mutableIntStateOf(-1) }
-    var tempProject by remember { mutableStateOf(VaultProject()) }
-    var tempExperience by remember { mutableStateOf(VaultExperience()) }
-    var expandedSkills by remember { mutableStateOf(true) }
-    var expandedProjects by remember { mutableStateOf(false) }
-    var expandedExperience by remember { mutableStateOf(false) }
-    var isSyncing by remember { mutableStateOf(false) }
-    var showAnalyticsDialog by remember { mutableStateOf(false) }
-    var isAnalyzing by remember { mutableStateOf(false) }
-    var analyticsStrengths by remember { mutableStateOf<List<String>>(emptyList()) }
-    var analyticsGaps by remember { mutableStateOf<List<String>>(emptyList()) }
-    var analyticsError by remember { mutableStateOf("") }
-
-    val isVaultEmpty = vaultSkills.isEmpty() && vaultProjects.isEmpty() && vaultExperience.isEmpty()
-
-    fun analyzeVault() {
-        if (!isOnline(context)) { analyticsError = "You are offline."; showAnalyticsDialog = true; return }
-        isAnalyzing = true; showAnalyticsDialog = true; analyticsError = ""
-        scope.launch {
-            try {
-                val client = OkHttpClient.Builder().connectTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
-                val vaultDataStr = "Skills: ${vaultSkills.joinToString(", ")}\nExp: ${userProfile.savedExperienceJson}\nProjects: ${userProfile.savedProjectsJson}"
-                val jsonBody = JSONObject().apply {
-                    put("vault_data", vaultDataStr)
-                    put("target_role", userProfile.targetRole.ifBlank { "Software Engineer" })
-                }.toString()
-                val req = Request.Builder().url(apiBaseUrl.trimEnd('/') + "/v1/ai/analytics").post(jsonBody.toRequestBody("application/json".toMediaType())).build()
-                val responseStr = withContext(Dispatchers.IO) { client.newCall(req).execute().use { if (it.isSuccessful) it.body?.string() else null } }
-                if (responseStr != null) {
-                    val parsed = JSONObject(responseStr)
-                    val sArray = parsed.optJSONArray("strengths"); val gArray = parsed.optJSONArray("gaps")
-                    val sList = mutableListOf<String>(); val gList = mutableListOf<String>()
-                    if (sArray != null) for (i in 0 until sArray.length()) sList.add(sArray.getString(i))
-                    if (gArray != null) for (i in 0 until gArray.length()) gList.add(gArray.getString(i))
-                    analyticsStrengths = sList; analyticsGaps = gList
-                } else { analyticsError = "Failed to analyze vault." }
-            } catch (e: Exception) { analyticsError = "Connection Error." } finally { isAnalyzing = false }
-        }
+    // --- JSON Persistence Layers ---
+    val vaultProjects: List<VaultProject> = remember(userProfile.savedProjectsJson) {
+        try { gson.fromJson(userProfile.savedProjectsJson, object : TypeToken<List<VaultProject>>() {}.type) ?: emptyList() } catch (e: Exception) { emptyList() }
+    }
+    val vaultExperience: List<VaultExperience> = remember(userProfile.savedExperienceJson) {
+        try { gson.fromJson(userProfile.savedExperienceJson, object : TypeToken<List<VaultExperience>>() {}.type) ?: emptyList() } catch (e: Exception) { emptyList() }
+    }
+    val vaultSkills: List<String> = remember(userProfile.savedSkillsJson) {
+        try { gson.fromJson(userProfile.savedSkillsJson, object : TypeToken<List<String>>() {}.type) ?: emptyList() } catch (e: Exception) { emptyList() }
+    }
+    val vaultEducation: List<VaultEducation> = remember(userProfile.savedEducationJson) {
+        try { gson.fromJson(userProfile.savedEducationJson, object : TypeToken<List<VaultEducation>>() {}.type) ?: emptyList() } catch (e: Exception) { emptyList() }
+    }
+    val vaultCertifications: List<VaultCertification> = remember(userProfile.savedCertificationsJson) {
+        try { gson.fromJson(userProfile.savedCertificationsJson, object : TypeToken<List<VaultCertification>>() {}.type) ?: emptyList() } catch (e: Exception) { emptyList() }
     }
 
+    // --- UI State Management ---
+    var editingProjectIndex by remember { mutableIntStateOf(-1) }
+    var editingExpIndex by remember { mutableIntStateOf(-1) }
+    var editingEduIndex by remember { mutableIntStateOf(-1) }
+    var editingCertIndex by remember { mutableIntStateOf(-1) }
+    var showSkillDialog by remember { mutableStateOf(false) }
+
+    var tempProject by remember { mutableStateOf(VaultProject()) }
+    var tempExperience by remember { mutableStateOf(VaultExperience()) }
+    var tempEducation by remember { mutableStateOf(VaultEducation()) }
+    var tempCert by remember { mutableStateOf(VaultCertification()) }
+    var tempSkill by remember { mutableStateOf("") }
+
+    var expandedSkills by remember { mutableStateOf(true) }
+    var expandedProjects by remember { mutableStateOf(false) }
+    var expandedExp by remember { mutableStateOf(false) }
+    var expandedEdu by remember { mutableStateOf(false) }
+    var expandedCerts by remember { mutableStateOf(false) }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        KineticBackground(accentCyan)
+        KineticBackground(accentColor = animatedAccent, isDark = isDark)
 
         Scaffold(
             modifier = Modifier.statusBarsPadding(),
-            snackbarHost = { SnackbarHost(snackbarHostState) },
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { Text("Master Vault", fontWeight = FontWeight.Bold, color = Color.White) },
-                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White) } },
+                    title = { Text(text = "Master Vault", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White) },
+                    navigationIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = onBack) { Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) }
+                            IconButton(onClick = { /* Sync Logic */ }) { Icon(imageVector = Icons.Default.CloudDownload, contentDescription = "Cloud Sync", tint = animatedAccent) }
+                        }
+                    },
                     actions = {
-                        IconButton(onClick = {
-                            if (!isOnline(context)) { scope.launch { snackbarHostState.showSnackbar("Offline") }; return@IconButton }
-                            isSyncing = true
-                            scope.launch {
-                                val cloudData = SupabaseClient.restoreVaultFromCloud(context)
-                                if (cloudData != null) {
-                                    userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = cloudData.optString("projects", "[]"), savedExperienceJson = cloudData.optString("experience", "[]"), savedSkillsJson = cloudData.optString("skills", "[]")))
-                                    snackbarHostState.showSnackbar("⬇️ Restored!")
-                                } else { snackbarHostState.showSnackbar("❌ No backup found.") }
-                                isSyncing = false
-                            }
-                        }) {
-                            if (isSyncing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = accentCyan)
-                            else Icon(Icons.Filled.CloudDownload, null, tint = accentCyan)
-                        }
-
-                        IconButton(onClick = {
-                            if (!isOnline(context)) { scope.launch { snackbarHostState.showSnackbar("Offline") }; return@IconButton }
-                            isSyncing = true
-                            scope.launch {
-                                val success = SupabaseClient.backupVaultToCloud(context, userProfile.savedProjectsJson, userProfile.savedExperienceJson, userProfile.savedSkillsJson)
-                                isSyncing = false
-                                snackbarHostState.showSnackbar(if (success) "☁️ Synced!" else "❌ Failed")
-                            }
-                        }) {
-                            if (isSyncing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = accentCyan)
-                            else Icon(Icons.Filled.CloudUpload, null, tint = accentCyan)
-                        }
-
-                        if (!isVaultEmpty) {
-                            IconButton(onClick = { analyzeVault() }) { Icon(Icons.Filled.AutoAwesome, null, tint = accentCyan) }
-                        }
+                        IconButton(onClick = onGoToAssistant) { Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = "AI Assistant", tint = animatedAccent) }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
             }
-        ) { innerPadding -> // FIXED: PADDING AMBIGUITY
-            if (isVaultEmpty) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(innerPadding).padding(32.dp),
-                    verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(Icons.Filled.Info, null, modifier = Modifier.size(100.dp), tint = accentCyan.copy(alpha = 0.2f))
-                    Text("Your Vault is Empty", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White)
-                    Spacer(Modifier.height(12.dp))
-                    Text("Build your profile via AI Assistant!", textAlign = TextAlign.Center, color = Color.Gray)
-                }
-            } else {
+        ) { innerPadding ->
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    contentPadding = PaddingValues(bottom = 60.dp)
+                    modifier = Modifier.fillMaxSize().padding(paddingValues = innerPadding).padding(horizontal = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(space = 20.dp),
+                    contentPadding = PaddingValues(bottom = 120.dp)
                 ) {
                     item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            BouncyVaultCard("Activity Log", Icons.Default.History, accentCyan, onGoToHistory, Modifier.weight(1f))
-                            BouncyVaultCard("Standings", Icons.Default.Assessment, accentCyan, onGoToStandings, Modifier.weight(1f))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(space = 14.dp)) {
+                            BouncyVaultCard(title = "History", icon = Icons.Default.History, accentColor = animatedAccent, onClick = onGoToHistory, modifier = Modifier.weight(weight = 1f))
+                            BouncyVaultCard(title = "Standings", icon = Icons.Default.Assessment, accentColor = animatedAccent, onClick = onGoToStandings, modifier = Modifier.weight(weight = 1f))
                         }
                     }
 
                     item {
-                        VaultServiceCard("AI Career Insights", "Deep analysis against target roles.", Icons.Filled.AutoAwesome, Color(0xFF6366F1), { analyzeVault() })
-                        Spacer(Modifier.height(12.dp))
-                        VaultServiceCard("AI Mock Interview", "Behavioral & Tech simulation.", Icons.Filled.Mic, Color(0xFF8B5CF6), onGoToInterview)
-                        Spacer(Modifier.height(12.dp))
-                        VaultServiceCard("Live Voice Coach", "Real-time conversation.", Icons.Filled.Mic, accentCyan, onGoToLiveVoice)
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            VaultServiceCard(title = "AI Mock Interview", desc = "Adaptive high-pressure simulation.", icon = Icons.Filled.Mic, accent = animatedAccent, onClick = onGoToInterview)
+                            VaultServiceCard(title = "Live Voice Round", desc = "Real-time conversational agility.", icon = Icons.Filled.RecordVoiceOver, accent = animatedAccent, onClick = onGoToLiveVoice)
+                        }
                     }
 
-                    if (vaultSkills.isNotEmpty()) {
-                        item {
-                            ExpandableVaultSection("Skills", Icons.Filled.Star, vaultSkills.size, expandedSkills, { expandedSkills = !expandedSkills }) {
-                                Column {
-                                    vaultSkills.chunked(2).forEach { rowSkills ->
-                                        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), Arrangement.spacedBy(8.dp)) {
-                                            rowSkills.forEach { skill ->
-                                                Surface(
-                                                    shape = RoundedCornerShape(16.dp), color = accentCyan.copy(alpha = 0.1f), modifier = Modifier.weight(1f)
-                                                ) {
-                                                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(skill, color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                        Icon(Icons.Filled.Close, null, modifier = Modifier.size(16.dp).clickable {
-                                                            val oldList = vaultSkills; val newList = vaultSkills.filter { it != skill }
-                                                            scope.launch {
-                                                                userProfileStore.saveUserProfile(userProfile.copy(savedSkillsJson = gson.toJson(newList)))
-                                                                val res = snackbarHostState.showSnackbar("Removed", "UNDO")
-                                                                if (res == SnackbarResult.ActionPerformed) userProfileStore.saveUserProfile(userProfile.copy(savedSkillsJson = gson.toJson(oldList)))
-                                                            }
-                                                        }, tint = Color.Gray)
+                    // --- ASSET SECTIONS ---
+                    item {
+                        ExpandableVaultSection(title = "Skills", icon = Icons.Filled.Star, count = vaultSkills.size, expanded = expandedSkills, accent = animatedAccent, onToggle = { expandedSkills = !expandedSkills }, onAdd = { showSkillDialog = true }) {
+                            if (vaultSkills.isEmpty()) AssistanceCTA(section = "Skills", onGo = onGoToAssistant, accent = animatedAccent)
+                            else VaultScrollContainer(maxHeight = 280, itemCount = vaultSkills.size, threshold = 15) {
+                                Column(modifier = Modifier) {
+                                    vaultSkills.chunked(size = 2).forEach { row ->
+                                        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(space = 8.dp)) {
+                                            row.forEach { skill ->
+                                                Surface(shape = RoundedCornerShape(size = 18.dp), color = animatedAccent.copy(alpha = 0.1f), border = BorderStroke(width = 1.dp, color = animatedAccent.copy(alpha = 0.1f)), modifier = Modifier.weight(weight = 1f)) {
+                                                    Row(modifier = Modifier.padding(all = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(text = skill, color = Color.White, modifier = Modifier.weight(weight = 1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        IconButton(onClick = { /* Delete Logic */ }, modifier = Modifier.size(20.dp)) { Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = Color.Gray) }
                                                     }
                                                 }
                                             }
-                                            if (rowSkills.size == 1) Spacer(Modifier.weight(1f))
+                                            if (row.size == 1) Spacer(modifier = Modifier.weight(weight = 1f))
                                         }
                                     }
                                 }
@@ -379,190 +305,299 @@ fun MasterVaultScreen(
                         }
                     }
 
-                    if (vaultProjects.isNotEmpty()) {
-                        item {
-                            ExpandableVaultSection("Projects", Icons.Filled.Star, vaultProjects.size, expandedProjects, { expandedProjects = !expandedProjects }) {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    vaultProjects.forEachIndexed { index, proj ->
-                                        VaultAssetCard(proj.name, "${proj.startMonth} ${proj.startYear} - ${proj.endMonth} ${proj.endYear}", proj.bullets,
-                                            onEdit = { editingProjectIndex = index; tempProject = proj },
-                                            onDelete = {
-                                                val oldList = vaultProjects; val newList = vaultProjects.filterIndexed { i, _ -> i != index }
-                                                scope.launch {
-                                                    userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(newList)))
-                                                    val res = snackbarHostState.showSnackbar("Deleted", "UNDO")
-                                                    if (res == SnackbarResult.ActionPerformed) userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(oldList)))
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (vaultExperience.isNotEmpty()) {
-                        item {
-                            ExpandableVaultSection("Experience", Icons.Filled.Person, vaultExperience.size, expandedExperience, { expandedExperience = !expandedExperience }) {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    vaultExperience.forEachIndexed { index, exp ->
-                                        VaultAssetCard("${exp.company} | ${exp.role}", "${exp.startMonth} ${exp.startYear} - ${exp.endMonth} ${exp.endYear}", exp.bullets,
-                                            onEdit = { editingExperienceIndex = index; tempExperience = exp },
-                                            onDelete = {
-                                                val oldList = vaultExperience; val newList = vaultExperience.filterIndexed { i, _ -> i != index }
-                                                scope.launch {
-                                                    userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(newList)))
-                                                    val res = snackbarHostState.showSnackbar("Deleted", "UNDO")
-                                                    if (res == SnackbarResult.ActionPerformed) userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(oldList)))
-                                                }
-                                            }
-                                        )
-                                    }
+                    item {
+                        ExpandableVaultSection(title = "Projects", icon = Icons.Filled.Work, count = vaultProjects.size, expanded = expandedProjects, accent = animatedAccent, onToggle = { expandedProjects = !expandedProjects }, onAdd = { editingProjectIndex = -2; tempProject = VaultProject() }) {
+                            if (vaultProjects.isEmpty()) AssistanceCTA(section = "Projects", onGo = onGoToAssistant, accent = animatedAccent)
+                            else Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 12.dp)) {
+                                vaultProjects.forEachIndexed { idx, proj ->
+                                    VaultAssetCard(title = proj.name, subtitle = "${proj.startMonth} ${proj.startYear} - ${proj.endMonth} ${proj.endYear}", bullets = proj.bullets, accent = animatedAccent, onEdit = { editingProjectIndex = idx; tempProject = proj }, onDelete = {})
                                 }
                             }
                         }
                     }
 
                     item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Filled.Info, null, tint = accentCyan)
-                                Spacer(Modifier.width(12.dp))
-                                Text("Education & Awards are managed directly in the Resume Builder!", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                        ExpandableVaultSection(title = "Experience", icon = Icons.Filled.Business, count = vaultExperience.size, expanded = expandedExp, accent = animatedAccent, onToggle = { expandedExp = !expandedExp }, onAdd = { editingExpIndex = -2; tempExperience = VaultExperience() }) {
+                            if (vaultExperience.isEmpty()) AssistanceCTA(section = "Experience", onGo = onGoToAssistant, accent = animatedAccent)
+                            else Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 12.dp)) {
+                                vaultExperience.forEachIndexed { idx, exp ->
+                                    VaultAssetCard(title = exp.company, subtitle = "${exp.role} | ${exp.startMonth} - ${exp.endMonth}", bullets = exp.bullets, accent = animatedAccent, onEdit = { editingExpIndex = idx; tempExperience = exp }, onDelete = {})
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        ExpandableVaultSection(title = "Education", icon = Icons.Filled.School, count = vaultEducation.size, expanded = expandedEdu, accent = animatedAccent, onToggle = { expandedEdu = !expandedEdu }, onAdd = { editingEduIndex = -2; tempEducation = VaultEducation() }) {
+                            if (vaultEducation.isEmpty()) AssistanceCTA(section = "Education", onGo = onGoToAssistant, accent = animatedAccent)
+                            else Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 12.dp)) {
+                                vaultEducation.forEachIndexed { i, edu -> VaultAssetCard(title = edu.school, subtitle = "${edu.degree} (${edu.year})", bullets = "", accent = animatedAccent, onEdit = { editingEduIndex = i; tempEducation = edu }, onDelete = {}) }
+                            }
+                        }
+                    }
+
+                    item {
+                        ExpandableVaultSection(title = "Certifications", icon = Icons.Filled.Verified, count = vaultCertifications.size, expanded = expandedCerts, accent = animatedAccent, onToggle = { expandedCerts = !expandedCerts }, onAdd = { editingCertIndex = -2; tempCert = VaultCertification() }) {
+                            if (vaultCertifications.isEmpty()) AssistanceCTA(section = "Certifications", onGo = onGoToAssistant, accent = animatedAccent)
+                            else Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 12.dp)) {
+                                vaultCertifications.forEachIndexed { i, cert -> VaultAssetCard(title = cert.name, subtitle = "${cert.issuer} (${cert.year})", bullets = "", accent = animatedAccent, onEdit = { editingCertIndex = i; tempCert = cert }, onDelete = {}) }
                             }
                         }
                     }
                 }
+        }
+
+        // --- Celestial Pull Switch ---
+        LampPullChain(isDark = isDark, onToggleTheme = onToggleTheme, accentColor = animatedAccent)
+    }
+
+    // ==========================================
+    // PREMIUM DIALOGS (CRUD)
+    // ==========================================
+
+    if (showSkillDialog) {
+        PremiumVaultDialog(title = "Add Professional Skill", accentColor = animatedAccent, onDismiss = { showSkillDialog = false }, onConfirm = {
+            scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedSkillsJson = gson.toJson(vaultSkills + tempSkill))) }
+            showSkillDialog = false; tempSkill = ""
+        }) { PremiumTextField(label = "Skill Name (e.g. Kotlin, AWS)", value = tempSkill, accent = animatedAccent) { tempSkill = it } }
+    }
+
+    if (editingProjectIndex != -1) {
+        PremiumVaultDialog(title = if (editingProjectIndex == -2) "New Project" else "Edit Project", accentColor = animatedAccent, onDismiss = { editingProjectIndex = -1 }, onConfirm = {
+            val newList = if (editingProjectIndex == -2) vaultProjects + tempProject else vaultProjects.toMutableList().apply { this[editingProjectIndex] = tempProject }
+            scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(newList))); editingProjectIndex = -1 }
+        }) {
+            Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 14.dp)) {
+                PremiumTextField(label = "Project Name *", value = tempProject.name, accent = animatedAccent) { tempProject = tempProject.copy(name = it) }
+                Row(modifier = Modifier, horizontalArrangement = Arrangement.spacedBy(space = 8.dp)) {
+                    PremiumSelection(options = MONTH_OPTIONS, value = tempProject.startMonth, accent = animatedAccent, modifier = Modifier.weight(1f)) { tempProject = tempProject.copy(startMonth = it) }
+                    PremiumSelection(options = YEAR_OPTIONS, value = tempProject.startYear, accent = animatedAccent, modifier = Modifier.weight(1f)) { tempProject = tempProject.copy(startYear = it) }
+                }
+                Row(modifier = Modifier, horizontalArrangement = Arrangement.spacedBy(space = 8.dp)) {
+                    PremiumSelection(options = MONTH_OPTIONS, value = tempProject.endMonth, accent = animatedAccent, modifier = Modifier.weight(1f)) { tempProject = tempProject.copy(endMonth = it) }
+                    PremiumSelection(options = YEAR_OPTIONS, value = tempProject.endYear, accent = animatedAccent, modifier = Modifier.weight(1f)) { tempProject = tempProject.copy(endYear = it) }
+                }
+                PremiumTextField(label = "Detailed Bullets *", value = tempProject.bullets, accent = animatedAccent, modifier = Modifier.height(height = 160.dp)) { tempProject = tempProject.copy(bullets = it) }
             }
         }
     }
 
-    // --- CRUD Dialogs (Logic Fully Maintained) ---
-    if (editingProjectIndex >= 0) {
-        val endM = listOf("Present") + MONTH_OPTIONS; val endY = listOf("Present") + YEAR_OPTIONS
-        AlertDialog(
-            onDismissRequest = { editingProjectIndex = -1 },
-            title = { Text("Edit Project") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = tempProject.name, onValueChange = { tempProject = tempProject.copy(name = it) }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SelectionField("Start M", tempProject.startMonth, MONTH_OPTIONS, { tempProject = tempProject.copy(startMonth = it) }, Modifier.weight(1f))
-                        SelectionField("Start Y", tempProject.startYear, YEAR_OPTIONS, { tempProject = tempProject.copy(startYear = it) }, Modifier.weight(1f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SelectionField("End M", tempProject.endMonth, endM, { tempProject = tempProject.copy(endMonth = it) }, Modifier.weight(1f))
-                        SelectionField("End Y", tempProject.endYear, endY, { tempProject = tempProject.copy(endYear = it) }, Modifier.weight(1f))
-                    }
-                    OutlinedTextField(value = tempProject.bullets, onValueChange = { tempProject = tempProject.copy(bullets = it) }, label = { Text("Bullets") }, modifier = Modifier.fillMaxWidth().height(120.dp))
+    if (editingExpIndex != -1) {
+        PremiumVaultDialog(title = "Work Experience", accentColor = animatedAccent, onDismiss = { editingExpIndex = -1 }, onConfirm = {
+            val newList = if (editingExpIndex == -2) vaultExperience + tempExperience else vaultExperience.toMutableList().apply { this[editingExpIndex] = tempExperience }
+            scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(newList))); editingExpIndex = -1 }
+        }) {
+            Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 14.dp)) {
+                PremiumTextField(label = "Organization", value = tempExperience.company, accent = animatedAccent) { tempExperience = tempExperience.copy(company = it) }
+                PremiumTextField(label = "Designation", value = tempExperience.role, accent = animatedAccent) { tempExperience = tempExperience.copy(role = it) }
+                Row(modifier = Modifier, horizontalArrangement = Arrangement.spacedBy(space = 8.dp)) {
+                    PremiumSelection(options = MONTH_OPTIONS, value = tempExperience.startMonth, accent = animatedAccent, modifier = Modifier.weight(1f)) { tempExperience = tempExperience.copy(startMonth = it) }
+                    PremiumSelection(options = YEAR_OPTIONS, value = tempExperience.startYear, accent = animatedAccent, modifier = Modifier.weight(1f)) { tempExperience = tempExperience.copy(startYear = it) }
                 }
-            },
-            confirmButton = { Button(onClick = {
-                val newList = vaultProjects.toMutableList(); newList[editingProjectIndex] = tempProject
-                scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(newList))); editingProjectIndex = -1 }
-            }) { Text("Save") } }
-        )
+                PremiumTextField(label = "Accomplishments", value = tempExperience.bullets, accent = animatedAccent, modifier = Modifier.height(height = 140.dp)) { tempExperience = tempExperience.copy(bullets = it) }
+            }
+        }
     }
 
-    if (editingExperienceIndex >= 0) {
-        val endM = listOf("Present") + MONTH_OPTIONS; val endY = listOf("Present") + YEAR_OPTIONS
-        AlertDialog(
-            onDismissRequest = { editingExperienceIndex = -1 },
-            title = { Text("Edit Experience") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = tempExperience.company, onValueChange = { tempExperience = tempExperience.copy(company = it) }, label = { Text("Company") })
-                    OutlinedTextField(value = tempExperience.role, onValueChange = { tempExperience = tempExperience.copy(role = it) }, label = { Text("Role") })
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SelectionField("Start M", tempExperience.startMonth, MONTH_OPTIONS, { tempExperience = tempExperience.copy(startMonth = it) }, Modifier.weight(1f))
-                        SelectionField("Start Y", tempExperience.startYear, YEAR_OPTIONS, { tempExperience = tempExperience.copy(startYear = it) }, Modifier.weight(1f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SelectionField("End M", tempExperience.endMonth, endM, { tempExperience = tempExperience.copy(endMonth = it) }, Modifier.weight(1f))
-                        SelectionField("End Y", tempExperience.endYear, endY, { tempExperience = tempExperience.copy(endYear = it) }, Modifier.weight(1f))
-                    }
-                    OutlinedTextField(value = tempExperience.bullets, onValueChange = { tempExperience = tempExperience.copy(bullets = it) }, label = { Text("Bullets") }, modifier = Modifier.fillMaxWidth().height(120.dp))
-                }
-            },
-            confirmButton = { Button(onClick = {
-                val newList = vaultExperience.toMutableList(); newList[editingExperienceIndex] = tempExperience
-                scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(newList))); editingExperienceIndex = -1 }
-            }) { Text("Save") } }
-        )
+    if (editingEduIndex != -1) {
+        PremiumVaultDialog(title = "Education Detail", animatedAccent, { editingEduIndex = -1 }, {
+            val newList = if (editingEduIndex == -2) vaultEducation + tempEducation else vaultEducation.toMutableList().apply { this[editingEduIndex] = tempEducation }
+            scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedEducationJson = gson.toJson(newList))); editingEduIndex = -1 }
+        }) {
+            Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 14.dp)) {
+                PremiumTextField(label = "Institution / School", value = tempEducation.school, accent = animatedAccent) { tempEducation = tempEducation.copy(school = it) }
+                PremiumTextField(label = "Degree / Certification", value = tempEducation.degree, accent = animatedAccent) { tempEducation = tempEducation.copy(degree = it) }
+                PremiumSelection(options = YEAR_OPTIONS, value = tempEducation.year, accent = animatedAccent) { tempEducation = tempEducation.copy(year = it) }
+            }
+        }
     }
 
-    if (showAnalyticsDialog) {
-        Dialog(onDismissRequest = { showAnalyticsDialog = false }) {
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF111111))) {
-                Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.AutoAwesome, null, modifier = Modifier.size(48.dp), tint = accentCyan)
-                    Text("Career Insights", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                    Spacer(Modifier.height(16.dp))
-                    if (isAnalyzing) CircularProgressIndicator(color = accentCyan)
-                    else {
-                        Column(Modifier.fillMaxWidth()) {
-                            Text("🌟 Strengths", fontWeight = FontWeight.Bold, color = accentCyan)
-                            analyticsStrengths.forEach { Text("• $it", color = Color.White, fontSize = 13.sp) }
-                            Spacer(Modifier.height(12.dp))
-                            Text("⚠️ Gaps", fontWeight = FontWeight.Bold, color = Color.Red)
-                            analyticsGaps.forEach { Text("• $it", color = Color.White, fontSize = 13.sp) }
-                        }
-                    }
-                    Button(onClick = { showAnalyticsDialog = false }, modifier = Modifier.fillMaxWidth().padding(top = 24.dp)) { Text("Close") }
-                }
+    if (editingCertIndex != -1) {
+        PremiumVaultDialog(title = "Certification Detail", animatedAccent, { editingCertIndex = -1 }, {
+            val newList = if (editingCertIndex == -2) vaultCertifications + tempCert else vaultCertifications.toMutableList().apply { this[editingCertIndex] = tempCert }
+            scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedCertificationsJson = gson.toJson(newList))); editingCertIndex = -1 }
+        }) {
+            Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(space = 14.dp)) {
+                PremiumTextField(label = "Certificate Title", value = tempCert.name, accent = animatedAccent) { tempCert = tempCert.copy(name = it) }
+                PremiumTextField(label = "Issuing Authority", value = tempCert.issuer, accent = animatedAccent) { tempCert = tempCert.copy(issuer = it) }
+                PremiumSelection(options = YEAR_OPTIONS, value = tempCert.year, accent = animatedAccent) { tempCert = tempCert.copy(year = it) }
             }
         }
     }
 }
 
 // ==========================================
-// SUB-COMPONENT: ASSET CARD
+// COMPONENT: PHYSICS PULL CHAIN
 // ==========================================
 @Composable
-fun VaultAssetCard(title: String, subtitle: String, bullets: String, onEdit: () -> Unit, onDelete: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = Color(0xFF22D3EE), modifier = Modifier.size(18.dp)) }
-                IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(18.dp)) }
+private fun LampPullChain(isDark: Boolean, onToggleTheme: (Boolean) -> Unit, accentColor: Color) {
+    val coroutineScope = rememberCoroutineScope()
+    val pullOffset = remember { Animatable(initialValue = Offset.Zero, typeConverter = Offset.VectorConverter) }
+    var hasToggled by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+
+    val anchorX = with(density) { (LocalConfiguration.current.screenWidthDp.dp - 40.dp).toPx() }
+    val anchorY = with(density) { (-15.dp).toPx() }
+    val restLength = with(density) { 130.dp.toPx() }
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        drawLine(color = Color.White.copy(alpha = 0.25f), start = Offset(x = anchorX, y = anchorY), end = Offset(x = anchorX + pullOffset.value.x, y = anchorY + restLength + pullOffset.value.y), strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier
+                .offset { IntOffset(x = (anchorX + pullOffset.value.x - 26.dp.toPx()).roundToInt(), y = (anchorY + restLength + pullOffset.value.y - 26.dp.toPx()).roundToInt()) }
+                .size(size = 52.dp)
+                .pointerInput(key1 = Unit) {
+                    detectDragGestures(
+                        onDragEnd = { 
+                            hasToggled = false
+                            coroutineScope.launch { pullOffset.animateTo(targetValue = Offset.Zero, animationSpec = spring(dampingRatio = 0.35f, stiffness = Spring.StiffnessLow)) } 
+                        },
+                        onDrag = { _, amt ->
+                            coroutineScope.launch {
+                                val next = pullOffset.value + amt
+                                pullOffset.snapTo(targetValue = next)
+                                if (next.y > 180f && !hasToggled) { onToggleTheme(!isDark); hasToggled = true }
+                            }
+                        }
+                    )
+                },
+            shape = CircleShape, color = Color(0xFF1A1A1A), border = BorderStroke(width = 1.5.dp, color = Color.White.copy(alpha = 0.15f)), shadowElevation = 10.dp
+        ) {
+            Box(modifier = Modifier, contentAlignment = Alignment.Center) {
+                Icon(imageVector = if (isDark) Icons.Default.DarkMode else Icons.Default.WbSunny, contentDescription = null, tint = accentColor, modifier = Modifier.size(size = 28.dp))
             }
-            Text(subtitle, color = Color(0xFF22D3EE), fontSize = 11.sp)
-            Spacer(Modifier.height(8.dp))
-            Text(bullets, color = Color.LightGray, fontSize = 13.sp, lineHeight = 18.sp)
         }
     }
 }
 
 // ==========================================
-// SUB-COMPONENT: SERVICE CARD
+// SUB-COMPONENTS & UTILITIES
 // ==========================================
+@Composable
+fun ExpandableVaultSection(title: String, icon: ImageVector, count: Int, expanded: Boolean, accent: Color, onToggle: () -> Unit, onAdd: () -> Unit, content: @Composable () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().animateContentSize(), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)), border = BorderStroke(width = 1.dp, color = accent.copy(alpha = 0.2f)), shape = RoundedCornerShape(size = 28.dp)) {
+        Column(modifier = Modifier) {
+            Row(modifier = Modifier.fillMaxWidth().clickable { onToggle() }.padding(all = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(imageVector = icon, contentDescription = null, tint = accent, modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.width(width = 14.dp))
+                Text(text = "$title ($count)", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(weight = 1f))
+                if (expanded) IconButton(onClick = onAdd) { Icon(imageVector = Icons.Default.AddCircleOutline, contentDescription = null, tint = accent) }
+                Icon(imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Color.Gray)
+            }
+            if (expanded) Box(modifier = Modifier.padding(horizontal = 22.dp).padding(bottom = 22.dp)) { content() }
+        }
+    }
+}
+
+@Composable
+fun VaultAssetCard(title: String, subtitle: String, bullets: String, accent: Color, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(size = 20.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.06f)), border = BorderStroke(width = 1.dp, color = accent.copy(alpha = 0.25f))) {
+        Column(modifier = Modifier.padding(all = 18.dp)) {
+            Row(modifier = Modifier, verticalAlignment = Alignment.CenterVertically) {
+                Text(text = title, color = Color.White, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(weight = 1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                IconButton(onClick = onEdit) { Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = accent, modifier = Modifier.size(size = 20.dp)) }
+                IconButton(onClick = onDelete) { Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f), modifier = Modifier.size(size = 20.dp)) }
+            }
+            Text(text = subtitle, color = accent, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            if (bullets.isNotBlank()) {
+                Spacer(modifier = Modifier.height(height = 10.dp))
+                Text(text = bullets, color = Color.LightGray.copy(alpha = 0.9f), style = MaterialTheme.typography.bodySmall, lineHeight = 20.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+fun PremiumVaultDialog(title: String, accentColor: Color, onDismiss: () -> Unit, onConfirm: () -> Unit, content: @Composable () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(modifier = Modifier.fillMaxWidth(fraction = 0.95f).wrapContentHeight(), shape = RoundedCornerShape(size = 32.dp), color = Color(0xFF121212), border = BorderStroke(width = 2.dp, color = accentColor.copy(alpha = 0.4f))) {
+            Column(modifier = Modifier.padding(all = 28.dp)) {
+                Text(text = title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color.White)
+                Spacer(modifier = Modifier.height(height = 24.dp))
+                Box(modifier = Modifier.weight(weight = 1f, fill = false)) { content() }
+                Spacer(modifier = Modifier.height(height = 28.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text(text = "CANCEL", color = Color.Gray, fontWeight = FontWeight.Bold) }
+                    Spacer(modifier = Modifier.width(width = 10.dp))
+                    Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = accentColor), shape = RoundedCornerShape(size = 14.dp)) {
+                        Text(text = "SAVE DATA", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PremiumTextField(label: String, value: String, accent: Color, modifier: Modifier = Modifier, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value, 
+        onValueChange = onValueChange, 
+        label = { Text(text = label) }, 
+        modifier = modifier.fillMaxWidth(), 
+        shape = RoundedCornerShape(size = 14.dp), 
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = accent, 
+            unfocusedBorderColor = Color.White.copy(alpha = 0.1f), 
+            focusedLabelColor = accent,
+            cursorColor = accent
+        )
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PremiumSelection(options: List<String>, value: String, accent: Color, modifier: Modifier = Modifier, onValueChange: (String) -> Unit) {
+    var exp by remember { mutableStateOf(value = false) }
+    ExposedDropdownMenuBox(expanded = exp, onExpandedChange = { exp = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = value, 
+            onValueChange = {}, 
+            readOnly = true, 
+            modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryNotEditable, enabled = true).fillMaxWidth(), 
+            shape = RoundedCornerShape(size = 14.dp), 
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = exp) }, 
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = accent, cursorColor = accent)
+        )
+        ExposedDropdownMenu(expanded = exp, onDismissRequest = { exp = false }, modifier = Modifier.background(Color(0xFF1A1A1A))) {
+            options.forEach { opt ->
+                DropdownMenuItem(text = { Text(text = opt, color = Color.White) }, onClick = { onValueChange(opt); exp = false })
+            }
+        }
+    }
+}
+
 @Composable
 fun VaultServiceCard(title: String, desc: String, icon: ImageVector, accent: Color, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.08f)),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.2f))
-    ) {
-        Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(48.dp).background(accent.copy(alpha = 0.2f), RoundedCornerShape(14.dp)), Alignment.Center) {
-                Icon(icon, null, tint = accent)
+    Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, shape = RoundedCornerShape(size = 28.dp), colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.08f)), border = BorderStroke(width = 1.dp, color = accent.copy(alpha = 0.25f))) {
+        Row(modifier = Modifier.padding(all = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(size = 54.dp).background(color = accent.copy(alpha = 0.15f), shape = RoundedCornerShape(size = 16.dp)), contentAlignment = Alignment.Center) { 
+                Icon(imageVector = icon, contentDescription = null, tint = accent, modifier = Modifier.size(28.dp)) 
             }
-            Spacer(Modifier.width(16.dp))
-            Column {
-                Text(title, color = Color.White, fontWeight = FontWeight.ExtraBold)
-                Text(desc, color = Color.Gray, fontSize = 12.sp)
+            Spacer(modifier = Modifier.width(width = 18.dp))
+            Column(modifier = Modifier) { 
+                Text(text = title, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                Text(text = desc, color = Color.Gray, style = MaterialTheme.typography.bodySmall) 
             }
+        }
+    }
+}
+
+@Composable
+fun VaultScrollContainer(maxHeight: Int, itemCount: Int, threshold: Int, content: @Composable () -> Unit) {
+    Box(modifier = if (itemCount > threshold) Modifier.heightIn(max = maxHeight.dp).verticalScroll(state = rememberScrollState()) else Modifier) { content() }
+}
+
+@Composable
+fun AssistanceCTA(section: String, onGo: () -> Unit, accent: Color) {
+    Card(modifier = Modifier.fillMaxWidth().clickable { onGo() }, colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)), border = BorderStroke(width = 1.dp, color = accent.copy(alpha = 0.25f)), shape = RoundedCornerShape(20.dp)) {
+        Row(modifier = Modifier.padding(all = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(imageVector = Icons.Filled.AutoAwesome, contentDescription = null, tint = accent, modifier = Modifier.size(size = 24.dp))
+            Spacer(modifier = Modifier.width(width = 14.dp))
+            Text(text = "Enhance your $section profile with AI insights. Tap to launch Assistant.", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
         }
     }
 }

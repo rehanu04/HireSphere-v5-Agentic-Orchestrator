@@ -3,7 +3,7 @@ package com.rehanu04.resumematchv2.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import com.rehanu04.resumematchv2.ui.LogEntry // Ensure this is accessible
+import com.rehanu04.resumematchv2.data.LogEntry // Ensure this is accessible
 
 class ActivityViewModel : ViewModel() {
     // Real-time stream of logs

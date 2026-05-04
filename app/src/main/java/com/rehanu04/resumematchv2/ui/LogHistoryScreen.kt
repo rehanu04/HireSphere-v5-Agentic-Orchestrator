@@ -2,6 +2,8 @@
 
 package com.rehanu04.resumematchv2.ui
 
+import com.rehanu04.resumematchv2.data.LogEntry
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.padding
@@ -136,5 +138,4 @@ fun LogItem(log: LogEntry, accentColor: Color) {
         }
     }
 }
-
-data class LogEntry(val date: String, val title: String, val status: String, val credits: Int, val description: String)
+

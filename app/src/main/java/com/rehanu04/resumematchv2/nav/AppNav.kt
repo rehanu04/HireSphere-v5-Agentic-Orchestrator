@@ -10,6 +10,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.rehanu04.resumematchv2.data.UserProfileStore
 import com.rehanu04.resumematchv2.ui.viewmodel.ActivityViewModel
+import com.rehanu04.resumematchv2.data.LogEntry
 
 // --- Explicit UI Imports ---
 import com.rehanu04.resumematchv2.ui.*
@@ -17,6 +18,7 @@ import com.rehanu04.resumematchv2.ui.*
 /**
  * HireSphere v5 - Central Navigation Orchestrator [2026 Edition].
  * Features: Shared ActivityViewModel, Real-time SROM Tracking, and Durable Audit Routing.
+ * Fully theme-synced with Master Vault Luxury Persona.
  */
 @Composable
 fun AppNav(
@@ -30,7 +32,6 @@ fun AppNav(
     val userProfileStore = remember { UserProfileStore(context) }
 
     // --- Initialize the "Nervous System" ---
-    // This shared ViewModel ensures data persists across all screen transitions.
     val activityViewModel: ActivityViewModel = viewModel()
 
     NavHost(navController = nav, startDestination = Routes.HOME) {
@@ -63,18 +64,16 @@ fun AppNav(
             )
         }
 
-        // --- TECHNICAL GAUNTLET [TG-A1 to TG-A5] ---
+        // --- TECHNICAL GAUNTLET ---
         composable("technical_round") {
             TechnicalTurnaroundScreen(
                 onBack = {
-                    // Log an "INTERRUPTED" status if they quit early[cite: 15]
-                    activityViewModel.addLog(LogEntry("MAY 03", "Technical Gauntlet", "INTERRUPTED", -2, "User exited session during TG-A2."))
+                    activityViewModel.addLog(LogEntry("MAY 04", "Technical Gauntlet", "INTERRUPTED", -2, "User exited TG-A2."))
                     nav.popBackStack()
                 },
-                onComplete = { score, gatesCompleted ->
-                    // Update scores and log success[cite: 15, 16]
+                onComplete = { score, gates ->
                     activityViewModel.updateMetrics(0.85f, 0.72f, 0.65f)
-                    activityViewModel.addLog(LogEntry("MAY 03", "Technical Gauntlet", "COMPLETED", -5, "Successfully validated 5/5 architectural gates."))
+                    activityViewModel.addLog(LogEntry("MAY 04", "Technical Gauntlet", "COMPLETED", -5, "Validated 5/5 architectural gates."))
                     nav.navigate("skill_standings")
                 }
             )
@@ -86,14 +85,13 @@ fun AppNav(
                 onBack = { nav.popBackStack() },
                 userProfileStore = userProfileStore,
                 apiBaseUrl = apiBaseUrl
-                // Completion logic can be added here to call activityViewModel.addLog()
             )
         }
 
         composable("live_interview") {
             LiveInterviewScreen(
                 onBack = {
-                    activityViewModel.addLog(LogEntry("MAY 03", "Live Voice Interview", "INTERRUPTED", -2, "Voice session lost connection."))
+                    activityViewModel.addLog(LogEntry("MAY 04", "Live Voice Interview", "INTERRUPTED", -2, "Disconnected."))
                     nav.popBackStack()
                 },
                 userProfileStore = userProfileStore,
@@ -103,16 +101,11 @@ fun AppNav(
 
         // --- DURABLE AUDIT & PERFORMANCE LEDGERS ---
         composable("activity_log") {
-            // Screen now observes the live logs from the ViewModel[cite: 15]
             val logs by activityViewModel.logs.collectAsState()
-            LogHistoryScreen(
-                onBack = { nav.popBackStack() },
-                logs = logs
-            )
+            LogHistoryScreen(onBack = { nav.popBackStack() }, logs = logs)
         }
 
         composable("skill_standings") {
-            // Screen now observes the live proficiency metrics[cite: 16]
             val tech: Float by activityViewModel.techScore.collectAsState()
             val sustain: Float by activityViewModel.sustainabilityIndex.collectAsState()
             val stability: Float by activityViewModel.stabilityIndex.collectAsState()
@@ -125,16 +118,18 @@ fun AppNav(
             )
         }
 
-        // --- CAREER ASSETS & THE VAULT ---
+        // --- CAREER ASSETS & THE VAULT [FIXED SIGNATURE] ---
         composable(Routes.MASTER_VAULT) {
             MasterVaultScreen(
+                isDark = darkMode,
+                onToggleTheme = onToggleDark,
                 onBack = { nav.popBackStack() },
                 onGoToInterview = { nav.navigate("mock_interview") },
                 onGoToLiveVoice = { nav.navigate("live_interview") },
                 onGoToHistory = { nav.navigate("activity_log") },
                 onGoToStandings = { nav.navigate("skill_standings") },
-                userProfileStore = userProfileStore,
-                apiBaseUrl = apiBaseUrl
+                onGoToAssistant = { nav.navigate(Routes.AI_ASSISTANT) }, // Hook to assistant[cite: 11, 16]
+                userProfileStore = userProfileStore
             )
         }
 
@@ -146,8 +141,7 @@ fun AppNav(
                 onToggleTheme = onToggleDark,
                 onBack = { nav.popBackStack() },
                 onGoCreate = {
-                    // Log the analysis action[cite: 15]
-                    activityViewModel.addLog(LogEntry("MAY 03", "Resume Analysis", "SUCCESS", -1, "Analyzed alignment for ${userProfile.targetRole}."))
+                    activityViewModel.addLog(LogEntry("MAY 04", "Resume Analysis", "SUCCESS", -1, "Analyzed role alignment."))
                     nav.navigate(Routes.CREATE)
                 },
                 onGoProfile = { nav.navigate(Routes.PROFILE) },
@@ -192,7 +186,7 @@ fun AppNav(
             GauntletContainerScreen(
                 isDark = darkMode,
                 onExit = {
-                    activityViewModel.addLog(LogEntry("MAY 03", "Recruitment Gauntlet", "INTERRUPTED", -5, "User exited full simulation."))
+                    activityViewModel.addLog(LogEntry("MAY 04", "Recruitment Gauntlet", "INTERRUPTED", -5, "User exited simulation."))
                     nav.popBackStack()
                 }
             )
