@@ -573,7 +573,7 @@ fun GroupDiscussionScreen(
                             }.toString()
 
                             val req = Request.Builder()
-                                .url(apiBaseUrl.trimEnd('/') + "/v1/ai/live-interview")
+                                .url(apiBaseUrl.trimEnd('/') + "/v1/gauntlet/gd-turn")
                                 .post(requestBody.toRequestBody("application/json".toMediaType()))
                                 .build()
                                 
