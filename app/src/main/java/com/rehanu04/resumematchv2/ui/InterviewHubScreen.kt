@@ -115,7 +115,7 @@ fun InterviewHubScreen(
                 icon = Icons.Default.Psychology,
                 accentColor = accentColor,
                 isDark = isDark,
-                enabled = techPassed, // Unlock logic preserved
+                enabled = true, // Unlocked: always active
                 onClick = onNavigateToAptitude
             )
 
@@ -128,7 +128,7 @@ fun InterviewHubScreen(
                 icon = Icons.Default.Groups,
                 accentColor = accentColor,
                 isDark = isDark,
-                enabled = aptitudePassed, // Unlock logic preserved
+                enabled = true, // Force enabled to always be active
                 onClick = onNavigateToGroupDiscussion
             )
 

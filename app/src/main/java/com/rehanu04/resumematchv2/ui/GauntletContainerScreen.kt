@@ -20,6 +20,48 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rehanu04.resumematchv2.ui.viewmodel.ActivityViewModel
+import com.rehanu04.resumematchv2.data.LogEntry
+import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import kotlin.random.Random
+
+data class AptitudeRequest(
+    @SerializedName("current_theta") val currentTheta: Float,
+    @SerializedName("responses") val responses: List<Map<String, String>>
+)
+
+data class AptitudeResponse(
+    @SerializedName("next_question") val nextQuestion: String,
+    @SerializedName("difficulty_b") val difficultyB: Float,
+    @SerializedName("discrimination_a") val discriminationA: Float,
+    @SerializedName("information_gain") val informationGain: Float
+)
+
+data class FinalScoreRequest(
+    @SerializedName("execution_correctness") val executionCorrectness: Float,
+    @SerializedName("sustainability_index") val sustainabilityIndex: Float,
+    @SerializedName("agent_stability") val agentStability: Float
+)
+
+data class FinalScoreResponse(
+    @SerializedName("final_score") val finalScore: Float,
+    @SerializedName("passed") val passed: Boolean
+)
 
 /**
  * Your Vision: The Immersive Job Simulation.
@@ -37,7 +79,9 @@ enum class GauntletStage(val displayName: String, val step: Int) {
 fun GauntletContainerScreen(
     isDark: Boolean,
     startStage: String = "TECH",
-    onExit: () -> Unit
+    onExit: () -> Unit,
+    apiBaseUrl: String = "",
+    activityViewModel: ActivityViewModel? = null
 ) {
     // Branding & Theme Consistency
     val bgColor = if (isDark) Color(0xFF0C0C0C) else Color(0xFFF9FAFB)
@@ -84,7 +128,9 @@ fun GauntletContainerScreen(
                         GauntletStage.APTITUDE -> AptitudeRoundFragment(
                             onComplete = { currentStage = GauntletStage.GD },
                             surfaceColor = surfaceColor,
-                            accentColor = accentColor
+                            accentColor = accentColor,
+                            apiBaseUrl = apiBaseUrl,
+                            activityViewModel = activityViewModel
                         )
                         GauntletStage.GD -> GDRoundFragment(
                             onComplete = { currentStage = GauntletStage.JOB_SIM },
@@ -160,37 +206,186 @@ fun TechnicalRoundFragment(onComplete: () -> Unit, surfaceColor: Color, accentCo
 
 // --- 2. APTITUDE ROUND: THE 2-PL BRAIN TEST ---
 @Composable
-fun AptitudeRoundFragment(onComplete: () -> Unit, surfaceColor: Color, accentColor: Color) {
-    val options = listOf("12.5g CO2", "26.8g CO2", "41.2g CO2", "55.0g CO2")
-    var selectedIndex by remember { mutableStateOf(-1) }
+fun AptitudeRoundFragment(onComplete: () -> Unit, surfaceColor: Color, accentColor: Color, apiBaseUrl: String, activityViewModel: ActivityViewModel?) {
+    val scope = rememberCoroutineScope()
+    var currentTheta by remember { mutableFloatStateOf(0.0f) }
+    val responses = remember { mutableStateListOf<Map<String, String>>() }
+    var iteration by remember { mutableIntStateOf(0) }
+    val maxIterations = 10
+    
+    var questionText by remember { mutableStateOf("Initializing Adaptive Engine...") }
+    var difficultyB by remember { mutableFloatStateOf(0f) }
+    var discriminationA by remember { mutableFloatStateOf(0f) }
+    
+    var isLoading by remember { mutableStateOf(true) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    
+    // Timer
+    var timeLeft by remember { mutableIntStateOf(60) }
+    
+    val httpClient = remember { OkHttpClient() }
+    val gson = remember { Gson() }
+
+    fun fetchNextQuestion() {
+        isLoading = true
+        scope.launch(Dispatchers.IO) {
+            try {
+                val req = AptitudeRequest(currentTheta, responses.toList())
+                val body = gson.toJson(req).toRequestBody("application/json".toMediaType())
+                val request = Request.Builder().url("$apiBaseUrl/v1/gauntlet/aptitude_item").post(body).build()
+                val response = httpClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val resText = response.body?.string() ?: ""
+                    val aptRes = gson.fromJson(resText, AptitudeResponse::class.java)
+                    withContext(Dispatchers.Main) {
+                        questionText = aptRes.nextQuestion
+                        difficultyB = aptRes.difficultyB
+                        discriminationA = aptRes.discriminationA
+                        timeLeft = 60
+                        isLoading = false
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    questionText = "Connection Error. Retrying..."
+                    delay(2000)
+                    fetchNextQuestion()
+                }
+            }
+        }
+    }
+    
+    fun submitFinalScore() {
+        isSubmitting = true
+        scope.launch(Dispatchers.IO) {
+            try {
+                val req = FinalScoreRequest(currentTheta * 10 + 50f, 0.8f, 0.9f)
+                val body = gson.toJson(req).toRequestBody("application/json".toMediaType())
+                val request = Request.Builder().url("$apiBaseUrl/v1/gauntlet/final_score").post(body).build()
+                val response = httpClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val resText = response.body?.string() ?: ""
+                    val finalRes = gson.fromJson(resText, FinalScoreResponse::class.java)
+                    withContext(Dispatchers.Main) {
+                        activityViewModel?.addLog(LogEntry("MAY 19", "Aptitude Gauntlet", if(finalRes.passed) "PASSED" else "FAILED", finalRes.finalScore.toInt(), "Completed 10 iterations. Theta: $currentTheta"))
+                        onComplete()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        activityViewModel?.addLog(LogEntry("MAY 19", "Aptitude Gauntlet", "COMPLETED", 75, "Fallback score. Theta: $currentTheta"))
+                        onComplete()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    activityViewModel?.addLog(LogEntry("MAY 19", "Aptitude Gauntlet", "ERROR", 0, "Failed to reach final score endpoint."))
+                    onComplete()
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        fetchNextQuestion()
+    }
+    
+    LaunchedEffect(timeLeft, isLoading, isSubmitting) {
+        if (!isLoading && !isSubmitting && timeLeft > 0) {
+            delay(1000)
+            timeLeft -= 1
+        }
+    }
+
     Column {
-        Text("Stage 2: IRT Calibration (APT-Q2)", color = Color.Gray, fontSize = 14.sp)
+        Text("Stage 2: IRT Calibration (APT-Q2) - Question ${iteration + 1}/$maxIterations", color = Color.Gray, fontSize = 14.sp)
         Spacer(modifier = Modifier.height(12.dp))
+        
+        // Progress Bar
+        LinearProgressIndicator(
+            progress = { timeLeft / 60f },
+            modifier = Modifier.fillMaxWidth().height(4.dp),
+            color = accentColor,
+            trackColor = surfaceColor
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = surfaceColor)) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Text("Numerical Reasoning", fontWeight = FontWeight.Bold, color = Color.White)
-                Text("Calculate the probable carbon intensity forecasting for a GPU cluster with b=2.10 and a=1.60.", color = Color.LightGray, fontSize = 13.sp)
-                Spacer(modifier = Modifier.height(20.dp))
+                if (isLoading) {
+                    CircularProgressIndicator(color = accentColor, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(questionText, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+                } else if (isSubmitting) {
+                    CircularProgressIndicator(color = accentColor, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Calculating Final Score...", color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+                } else {
+                    Text("Numerical Reasoning", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(questionText, color = Color.LightGray, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                options.forEachIndexed { index, option ->
-                    OutlinedButton(
-                        onClick = { selectedIndex = index },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (selectedIndex == index) accentColor.copy(alpha = 0.2f) else Color.Transparent,
-                            contentColor = if (selectedIndex == index) accentColor else Color.White
+                    val isNumeric = questionText.contains("calculate", ignoreCase = true) || questionText.contains("formula", ignoreCase = true) || questionText.contains("number", ignoreCase = true)
+                    
+                    if (isNumeric) {
+                        var numericInput by remember { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = numericInput,
+                            onValueChange = { numericInput = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = accentColor, focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                            label = { Text("Numeric Value", color = Color.Gray) }
                         )
-                    ) { Text(option) }
-                }
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = {
+                                val isCorrect = numericInput.isNotBlank() && Random.nextBoolean() // dummy check
+                                val score = if (isCorrect) 1.0f else 0.0f
+                                currentTheta += discriminationA * (score - 0.5f)
+                                responses.add(mapOf("question" to questionText, "score" to score.toString()))
+                                iteration++
+                                if (iteration >= maxIterations) submitFinalScore() else fetchNextQuestion()
+                            },
+                            enabled = numericInput.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+                        ) {
+                            Text("CONFIRM ANSWER", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+                        }
+                    } else {
+                        val options = listOf("Increase b-factor", "Decrease b-factor", "Normalize a-factor", "Hold constant")
+                        var selectedIndex by remember { mutableStateOf(-1) }
+                        options.forEachIndexed { index, option ->
+                            val scale by animateFloatAsState(
+                                targetValue = if (selectedIndex == index) 1.04f else 1f,
+                                animationSpec = spring(dampingRatio = 0.7f, stiffness = 200f)
+                            )
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).scale(scale).clickable { selectedIndex = index },
+                                colors = CardDefaults.cardColors(containerColor = if (selectedIndex == index) accentColor.copy(alpha = 0.2f) else Color.Transparent),
+                                border = BorderStroke(1.dp, if (selectedIndex == index) accentColor else Color.DarkGray)
+                            ) {
+                                Text(option, modifier = Modifier.padding(16.dp), color = if (selectedIndex == index) accentColor else Color.White)
+                            }
+                        }
 
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(
-                    onClick = onComplete,
-                    enabled = selectedIndex != -1,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = accentColor)
-                ) {
-                    Text("CONFIRM ANSWER", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = {
+                                val isCorrect = Random.nextBoolean() // dummy check
+                                val score = if (isCorrect) 1.0f else 0.0f
+                                currentTheta += discriminationA * (score - 0.5f)
+                                responses.add(mapOf("question" to questionText, "score" to score.toString()))
+                                iteration++
+                                if (iteration >= maxIterations) submitFinalScore() else fetchNextQuestion()
+                            },
+                            enabled = selectedIndex != -1,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+                        ) {
+                            Text("CONFIRM ANSWER", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
                 }
             }
         }

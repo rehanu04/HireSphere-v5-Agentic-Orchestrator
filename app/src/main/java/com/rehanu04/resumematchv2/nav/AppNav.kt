@@ -42,7 +42,7 @@ fun AppNav(
                 onNavigateToCreate = { navController.navigate(Routes.CREATE) },
                 onNavigateToVault = { navController.navigate(Routes.MASTER_VAULT) },
                 onNavigateToInterviewHub = { navController.navigate(Routes.INTERVIEW_HUB) },
-                onNavigateToGauntlet = { navController.navigate("gauntlet_screen") }
+                onNavigateToGauntlet = { navController.navigate("gauntlet_screen/TECH") }
             )
         }
 
@@ -127,8 +127,50 @@ fun AppNav(
             AiAssistantScreen(onBack = { navController.popBackStack() }, userProfileStore = userProfileStore, apiBaseUrl = apiBaseUrl)
         }
 
-        composable("gauntlet_screen") {
-            GauntletContainerScreen(isDark = darkMode, onExit = { navController.popBackStack() })
+        composable("gauntlet_screen/APTITUDE") {
+            QuantitativeAptitudeScreen(
+                isDark = darkMode,
+                apiBaseUrl = apiBaseUrl,
+                activityViewModel = activityViewModel,
+                userProfileStore = userProfileStore,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("gauntlet_screen/GD") {
+            GroupDiscussionScreen(
+                isDark = darkMode,
+                activityViewModel = activityViewModel,
+                onBack = { navController.popBackStack() },
+                apiBaseUrl = apiBaseUrl
+            )
+        }
+
+        composable("gauntlet_screen/{startStage}") { backStackEntry ->
+            val startStage = backStackEntry.arguments?.getString("startStage") ?: "TECH"
+            GauntletContainerScreen(
+                isDark = darkMode,
+                startStage = startStage,
+                onExit = { navController.popBackStack() },
+                apiBaseUrl = apiBaseUrl,
+                activityViewModel = activityViewModel
+            )
+        }
+
+        composable(Routes.PROFILE) {
+            ProfileSetupScreen(
+                onBack = { navController.popBackStack() },
+                onGoMasterVault = { navController.navigate(Routes.MASTER_VAULT) },
+                userProfileStore = userProfileStore
+            )
+        }
+
+        composable("live_interview") {
+            LiveInterviewScreen(
+                onBack = { navController.popBackStack() },
+                userProfileStore = userProfileStore,
+                apiBaseUrl = apiBaseUrl
+            )
         }
     }
 }
