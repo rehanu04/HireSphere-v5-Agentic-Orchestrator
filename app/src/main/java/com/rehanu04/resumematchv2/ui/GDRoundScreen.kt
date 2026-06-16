@@ -10,7 +10,7 @@ import android.content.pm.PackageManager
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.ui.platform.LocalContext
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -390,6 +390,10 @@ fun GroupDiscussionScreen(
     // Conversation history for LLM context (pairs of speaker/text)
     var conversationHistory by remember { mutableStateOf(listOf<Pair<String, String>>()) }
     
+    // Latent Knowledge & Pre-fetch Buffers
+    var warmupContexts by remember { mutableStateOf(mapOf<String, String>()) }
+    val prefetchCache = remember { mutableStateMapOf<String, String>() }
+    
     // Server Wakeup & Topic Preparation Phase
     var isPreparingBackend by remember { mutableStateOf(false) }
 
@@ -477,6 +481,91 @@ fun GroupDiscussionScreen(
     }
 
     // ── LLM-Backed Agent Turn (self-contained per agent) ─────────────────────
+    // ── Continuous Environmental Passive Listening Pipeline ──────────────────
+    suspend fun fetchAgentReply(
+        agentName: String,
+        agentRole: String
+    ) {
+        if (isAgentThinking || phase != GDPhase.RUNNING || isPreparingBackend) return
+        if (conversationHistory.isEmpty() || conversationHistory.last().first == agentName) return
+        if (prefetchCache.containsKey(agentName)) return // Already pre-fetched
+        
+        withContext(Dispatchers.IO) {
+            try {
+                // Isolated Sandbox Memory Compiler
+                val chatHistoryStr = JSONArray().apply {
+                    conversationHistory.forEach { (spk, txt) ->
+                        val formattedSpk = if (spk == agentName) "YOU" else "USER: ${spk.uppercase()}"
+                        put("[$formattedSpk]: $txt")
+                    }
+                }.toString()
+
+                val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point."
+                val repetitionBan = "REPETITION BAN: You are STRICTLY FORBIDDEN from repeating previously used phrases. Never use generic filler."
+                val conversationalFlow = "FORMAT: Use short, punchy, human-like chat responses. Be dynamic and highly reactive."
+                
+                val latentKnowledge = warmupContexts[agentName] ?: ""
+                val latentContextInstruction = if (latentKnowledge.isNotEmpty()) "LATENT KNOWLEDGE (Use to inform your arguments): $latentKnowledge" else ""
+                
+                val baseMeta = "$latentContextInstruction\n$chatbotOverride\n$repetitionBan\n$conversationalFlow"
+                
+                val lastUserText = conversationHistory.lastOrNull { it.first == "You" }?.second ?: ""
+                val isMetaConversational = lastUserText.contains("Why isn't anyone speaking", ignoreCase = true) ||
+                        lastUserText.contains("Why isn't anyone talking", ignoreCase = true) ||
+                        lastUserText.contains("Is anyone there", ignoreCase = true) ||
+                        lastUserText.contains("Are you there", ignoreCase = true) ||
+                        lastUserText.contains("Rehan", ignoreCase = true) ||
+                        lastUserText.contains("Alex", ignoreCase = true) ||
+                        lastUserText.contains("Sam", ignoreCase = true) ||
+                        lastUserText.contains("Chris", ignoreCase = true)
+
+                val metaGateInstruction = if (isMetaConversational) {
+                    "META-CONVERSATION: The user ('$lastUserText') is talking outside the debate. Acknowledge this directly as a chatbot."
+                } else ""
+                
+                val finalMetaInstruction = if (metaGateInstruction.isNotEmpty()) "$metaGateInstruction\n$baseMeta" else baseMeta
+
+                val requestBody = JSONObject().apply {
+                    put("target_role", "$agentName (Stance: $agentRole)")
+                    put("job_description", "Group Discussion Topic: $selectedTopic.\n$finalMetaInstruction")
+                    put("vault_data", "")
+                    put("chat_history", chatHistoryStr)
+                    put("user_audio_text", "")
+                    put("elapsed_seconds", 0)
+                }.toString()
+
+                val req = Request.Builder()
+                    .url(apiBaseUrl.trimEnd('/') + "/v1/gauntlet/gd-turn")
+                    .post(requestBody.toRequestBody("application/json".toMediaType()))
+                    .build()
+                    
+                val resp = httpClient.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val bodyString = resp.body?.string()
+                    if (!bodyString.isNullOrBlank()) {
+                        var cleanedBody = bodyString.trim()
+                        if (cleanedBody.startsWith("```json")) {
+                            cleanedBody = cleanedBody.removePrefix("```json").removeSuffix("```").trim()
+                        } else if (cleanedBody.startsWith("```")) {
+                            cleanedBody = cleanedBody.removePrefix("```").removeSuffix("```").trim()
+                        }
+                        try {
+                            val jsonObject = JSONObject(cleanedBody)
+                            val reply = jsonObject.optString("reply", "").ifBlank { 
+                                jsonObject.optString("ai_reply", "") 
+                            }
+                            prefetchCache[agentName] = reply.ifBlank { cleanedBody }
+                        } catch (e: Exception) {
+                            prefetchCache[agentName] = cleanedBody
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore network errors in pre-fetch, speakAgentWithLLM will fallback
+            }
+        }
+    }
+
     // Each call is fire-and-forget; onDone fires when TTS utterance fully completes
     fun speakAgentWithLLM(
         agentName: String,
@@ -536,26 +625,27 @@ fun GroupDiscussionScreen(
                         }
                     } else "specific realities of $selectedTopic"
 
-                    val rawReply = withContext(Dispatchers.IO) {
-                        try {
-                            val chatHistoryStr = JSONArray().apply {
-                                conversationHistory.forEach { (spk, txt) ->
-                                    val formattedSpk = when (spk) {
-                                        "Alex" -> "CANDIDATE: ALEX (SKEPTIC)"
-                                        "Sam" -> "CANDIDATE: SAM (VISIONARY)"
-                                        "Chris" -> "CANDIDATE: CHRIS (NEUTRAL)"
-                                        "You" -> "USER: REHAN"
-                                        else -> spk
+                    val cachedReply = prefetchCache.remove(agentName)
+                    val rawReply = if (cachedReply != null) {
+                        cachedReply
+                    } else {
+                        withContext(Dispatchers.IO) {
+                            try {
+                                val chatHistoryStr = JSONArray().apply {
+                                    conversationHistory.forEach { (spk, txt) ->
+                                        val formattedSpk = if (spk == agentName) "YOU" else "USER: ${spk.uppercase()}"
+                                        put("[$formattedSpk]: $txt")
                                     }
-                                    put("[$formattedSpk]: $txt")
-                                }
-                            }.toString()
+                                }.toString()
 
-                            val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point."
-                            val repetitionBan = "REPETITION BAN: You are STRICTLY FORBIDDEN from repeating previously used phrases. Never use generic filler."
-                            val conversationalFlow = "FORMAT: Use short, punchy, human-like chat responses. Be dynamic and highly reactive."
-                            
-                            val baseMeta = "$chatbotOverride\n$repetitionBan\n$conversationalFlow"
+                                val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point."
+                                val repetitionBan = "REPETITION BAN: You are STRICTLY FORBIDDEN from repeating previously used phrases. Never use generic filler."
+                                val conversationalFlow = "FORMAT: Use short, punchy, human-like chat responses. Be dynamic and highly reactive."
+                                
+                                val latentKnowledge = warmupContexts[agentName] ?: ""
+                                val latentContextInstruction = if (latentKnowledge.isNotEmpty()) "LATENT KNOWLEDGE (Use to inform your arguments): $latentKnowledge" else ""
+                                
+                                val baseMeta = "$latentContextInstruction\n$chatbotOverride\n$repetitionBan\n$conversationalFlow"
                             
                             val metaGateInstruction = if (isMetaConversational) {
                                 "META-CONVERSATION: The user ('$lastUserText') is talking outside the debate. Acknowledge this directly as a chatbot."
@@ -609,7 +699,8 @@ fun GroupDiscussionScreen(
                         } catch (e: Exception) {
                             null // Trigger fallback phrases on network exceptions
                         }
-                    } 
+                    }
+                    } // close else block of cachedReply
                     
                     rawReply ?: run {
                         val fallbackPhrases = when (agentRole) {
@@ -800,6 +891,9 @@ fun GroupDiscussionScreen(
             delay((100L..250L).random())
             while (phase == GDPhase.RUNNING) {
                 val lastSpeaker = conversationHistory.lastOrNull()?.first
+                if (floorOwner != "" && floorOwner != "Alex" && lastSpeaker != "Alex") {
+                    fetchAgentReply("Alex", "against")
+                }
                 if (!isMicActive && (floorOwner == "" || floorOwner == "Alex") && !isAgentThinking && lastSpeaker != "Alex") {
                     var acquired = false
                     withContext(Dispatchers.Main) {
@@ -832,6 +926,9 @@ fun GroupDiscussionScreen(
             delay((200L..350L).random())
             while (phase == GDPhase.RUNNING) {
                 val lastSpeaker = conversationHistory.lastOrNull()?.first
+                if (floorOwner != "" && floorOwner != "Sam" && lastSpeaker != "Sam") {
+                    fetchAgentReply("Sam", "for")
+                }
                 if (!isMicActive && (floorOwner == "" || floorOwner == "Sam") && !isAgentThinking && lastSpeaker != "Sam") {
                     var acquired = false
                     withContext(Dispatchers.Main) {
@@ -863,6 +960,9 @@ fun GroupDiscussionScreen(
             delay((300L..450L).random())
             while (phase == GDPhase.RUNNING) {
                 val lastSpeaker = conversationHistory.lastOrNull()?.first
+                if (floorOwner != "" && floorOwner != "Chris" && lastSpeaker != "Chris") {
+                    fetchAgentReply("Chris", "neutral")
+                }
                 if (!isMicActive && (floorOwner == "" || floorOwner == "Chris") && !isAgentThinking && lastSpeaker != "Chris") {
                     var acquired = false
                     withContext(Dispatchers.Main) {
@@ -950,10 +1050,38 @@ fun GroupDiscussionScreen(
             activeSpeaker = ""
             floorOwner = ""
             
-            initiativeScore = computeInitiativeScore(messages, userSpokeFirst)
-            contentScore    = computeContentScore(messages, selectedTopic)
-            cohesionScore   = computeCohesionScore(messages, interruptionCount)
-            impactScore     = computeImpactScore(messages)
+            // Replace local compute with Backend Analytics Call
+            withContext(Dispatchers.IO) {
+                try {
+                    val fullTranscript = JSONArray().apply {
+                        conversationHistory.forEach { (spk, txt) -> put("[$spk]: $txt") }
+                    }.toString()
+                    val requestBody = JSONObject().apply { put("full_transcript", fullTranscript) }.toString()
+                    val req = Request.Builder()
+                        .url(apiBaseUrl.trimEnd('/') + "/v1/gauntlet/gd-scorecard")
+                        .post(requestBody.toRequestBody("application/json".toMediaType()))
+                        .build()
+                    val resp = httpClient.newCall(req).execute()
+                    if (resp.isSuccessful) {
+                        val bodyString = resp.body?.string() ?: ""
+                        val jsonObject = JSONObject(bodyString)
+                        initiativeScore = jsonObject.optInt("initiative_score", computeInitiativeScore(messages, userSpokeFirst))
+                        contentScore = jsonObject.optInt("content_score", computeContentScore(messages, selectedTopic))
+                        cohesionScore = jsonObject.optInt("cohesion_score", computeCohesionScore(messages, interruptionCount))
+                        impactScore = jsonObject.optInt("impact_score", computeImpactScore(messages))
+                    } else {
+                        initiativeScore = computeInitiativeScore(messages, userSpokeFirst)
+                        contentScore    = computeContentScore(messages, selectedTopic)
+                        cohesionScore   = computeCohesionScore(messages, interruptionCount)
+                        impactScore     = computeImpactScore(messages)
+                    }
+                } catch (e: Exception) {
+                    initiativeScore = computeInitiativeScore(messages, userSpokeFirst)
+                    contentScore    = computeContentScore(messages, selectedTopic)
+                    cohesionScore   = computeCohesionScore(messages, interruptionCount)
+                    impactScore     = computeImpactScore(messages)
+                }
+            }
             
             val avgScore = (initiativeScore + contentScore + cohesionScore + impactScore) / 4
             val tag = SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date()).uppercase()
@@ -1104,7 +1232,32 @@ fun GroupDiscussionScreen(
                                         } catch (e: Exception) {}
                                     }
                                     
-                                    // 2. Explicit 2-second topic preparation delay
+                                    // 2. Fetch latent knowledge context for all agents in parallel
+                                    val newContexts = mutableMapOf<String, String>()
+                                    val agents = listOf("Alex" to "against", "Sam" to "for", "Chris" to "neutral")
+                                    agents.map { (name, role) ->
+                                        scope.async(Dispatchers.IO) {
+                                            try {
+                                                val requestBody = JSONObject().apply {
+                                                    put("target_role", "$name (Stance: $role)")
+                                                    put("job_description", selectedTopic)
+                                                }.toString()
+                                                val req = Request.Builder()
+                                                    .url(apiBaseUrl.trimEnd('/') + "/v1/gauntlet/gd-warmup")
+                                                    .post(requestBody.toRequestBody("application/json".toMediaType()))
+                                                    .build()
+                                                val resp = httpClient.newCall(req).execute()
+                                                if (resp.isSuccessful) {
+                                                    val bodyString = resp.body?.string() ?: ""
+                                                    val jsonObject = JSONObject(bodyString)
+                                                    newContexts[name] = jsonObject.optString("strategy_context", "")
+                                                }
+                                            } catch (e: Exception) {}
+                                        }
+                                    }.awaitAll()
+                                    warmupContexts = newContexts
+                                    
+                                    // 3. Explicit 2-second topic preparation delay minimum
                                     delay(2000L)
                                     isPreparingBackend = false
                                     
