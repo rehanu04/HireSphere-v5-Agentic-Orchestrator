@@ -500,7 +500,11 @@ fun GroupDiscussionScreen(
                     }
                 }.toString()
 
-                val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point."
+                val linguisticBalancer = if (listOf("Social Media's Impact on Mental Health", "Remote Work vs. Office Culture", "EdTech & the Future of Online Education").contains(selectedTopic)) {
+                    "LINGUISTIC DOMAIN: This is a general human/social case study. You must strictly speak in a natural, grounded, everyday human tone. Do not use highly dense corporate jargon, engineering architectures, or abstract 'structural' boilerplate phrases. Speak like a real peer participant in a standard university group discussion."
+                } else ""
+                val nameAnchor = "NAME ANCHOR: When responding to a [USER: REHAN] context block, you must explicitly address the user as 'Rehan' in your response."
+                val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point.\n$nameAnchor\n$linguisticBalancer"
                 val repetitionBan = "REPETITION BAN: You are STRICTLY FORBIDDEN from repeating previously used phrases. Never use generic filler."
                 val conversationalFlow = "FORMAT: Use short, punchy, human-like chat responses. Be dynamic and highly reactive."
                 
@@ -638,7 +642,11 @@ fun GroupDiscussionScreen(
                                     }
                                 }.toString()
 
-                                val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point."
+                                val linguisticBalancer = if (listOf("Social Media's Impact on Mental Health", "Remote Work vs. Office Culture", "EdTech & the Future of Online Education").contains(selectedTopic)) {
+                                    "LINGUISTIC DOMAIN: This is a general human/social case study. You must strictly speak in a natural, grounded, everyday human tone. Do not use highly dense corporate jargon, engineering architectures, or abstract 'structural' boilerplate phrases. Speak like a real peer participant in a standard university group discussion."
+                                } else ""
+                                val nameAnchor = "NAME ANCHOR: When responding to a [USER: REHAN] context block, you must explicitly address the user as 'Rehan' in your response."
+                                val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point.\n$nameAnchor\n$linguisticBalancer"
                                 val repetitionBan = "REPETITION BAN: You are STRICTLY FORBIDDEN from repeating previously used phrases. Never use generic filler."
                                 val conversationalFlow = "FORMAT: Use short, punchy, human-like chat responses. Be dynamic and highly reactive."
                                 
@@ -703,33 +711,34 @@ fun GroupDiscussionScreen(
                     } // close else block of cachedReply
                     
                     rawReply ?: run {
+                        val nameStr = if (lastSpeaker == "You") ", Rehan" else ""
                         val fallbackPhrases = when (agentRole) {
                             "against" -> listOf(
-                                "That's an interesting perspective, but I'm still convinced there are significant risks we aren't discussing.",
-                                "You make a fair point, though I still have my reservations about the structural approach.",
-                                "I hear what you're saying. However, the potential downsides still seem too high to me.",
-                                "That's a bold claim. I'm just not sure the data fully supports that kind of optimism.",
-                                "I see where you're coming from, but we really need to verify how that aligns with reality.",
-                                "Valid point, but I still believe we need a much more cautious approach here."
+                                "That's an interesting perspective%s, but I'm still convinced there are significant risks we aren't discussing.",
+                                "You make a fair point%s, though I still have my reservations about the structural approach.",
+                                "I hear what you're saying%s. However, the potential downsides still seem too high to me.",
+                                "That's a bold claim%s. I'm just not sure the data fully supports that kind of optimism.",
+                                "I see where you're coming from%s, but we really need to verify how that aligns with reality.",
+                                "Valid point%s, but I still believe we need a much more cautious approach here."
                             )
                             "for" -> listOf(
-                                "I completely agree with the direction of that point. The scaling potential here is huge.",
-                                "Exactly. If we organize our approach around those benefits, the upside is massive.",
-                                "That's a great perspective. I think leveraging that effectively will accelerate our goals.",
-                                "I'm fully on board with that optimistic vision. It aligns perfectly with what we need.",
-                                "Spot on. The upside potential of that concept is exactly why we should push forward.",
-                                "I see it the exact same way. It's a great opportunity to accelerate the outcome."
+                                "I completely agree with the direction of that point%s. The scaling potential here is huge.",
+                                "Exactly%s. If we organize our approach around those benefits, the upside is massive.",
+                                "That's a great perspective%s. I think leveraging that effectively will accelerate our goals.",
+                                "I'm fully on board with that optimistic vision%s. It aligns perfectly with what we need.",
+                                "Spot on%s. The upside potential of that concept is exactly why we should push forward.",
+                                "I see it the exact same way%s. It's a great opportunity to accelerate the outcome."
                             )
                             else -> listOf(
-                                "Both sides have valid points here. It's really about finding that neutral baseline.",
-                                "I'm carefully weighing both sides of that argument. It's definitely not black and white.",
-                                "That's a complex angle. We need to balance the implications before moving too fast.",
-                                "I think the middle ground is the safest bet here. Compliance and metrics are key.",
-                                "I see the merit in both arguments. It's a very nuanced topic.",
-                                "Let's evaluate the objective reality of that statement. There are pros and cons to both."
+                                "Both sides have valid points here%s. It's really about finding that neutral baseline.",
+                                "I'm carefully weighing both sides of that argument%s. It's definitely not black and white.",
+                                "That's a complex angle%s. We need to balance the implications before moving too fast.",
+                                "I think the middle ground is the safest bet here%s. Compliance and metrics are key.",
+                                "I see the merit in both arguments%s. It's a very nuanced topic.",
+                                "Let's evaluate the objective reality of that statement%s. There are pros and cons to both."
                             )
                         }
-                        fallbackPhrases.random()
+                        String.format(fallbackPhrases.random(), nameStr)
                     }
                 }
 
