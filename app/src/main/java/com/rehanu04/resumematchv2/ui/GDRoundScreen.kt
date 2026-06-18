@@ -1040,9 +1040,21 @@ fun GroupDiscussionScreen(
     // ── Grace Period (Wrap-Up) Monitor ──────────────────────────────────────
     LaunchedEffect(phase) {
         if (phase == GDPhase.WRAPPING_UP) {
+            // Discard background caching tokens to prevent idle workers from hanging the wrap-up
+            prefetchCache.clear()
+            
+            // Bypass further loop iterations if no one is actively speaking
+            if (activeSpeaker.isEmpty() && !isMicActive) {
+                isAgentThinking = false
+            }
+
             // Wait for any current active speaker or thinking agent to finish
             while (activeSpeaker.isNotEmpty() || isMicActive || isAgentThinking) {
                 delay(500L)
+                prefetchCache.clear()
+                if (activeSpeaker.isEmpty() && !isMicActive) {
+                    isAgentThinking = false
+                }
             }
             
             // If the user spoke last just as the timer expired, allow one AI agent to give a final reply
@@ -1159,14 +1171,22 @@ fun GroupDiscussionScreen(
                         lowerText.contains("alex") -> floorOwner = "Alex"
                         lowerText.contains("sam") -> floorOwner = "Sam"
                         lowerText.contains("chris") -> floorOwner = "Chris"
-                        else -> floorOwner = "" // Allow any available agent to jump in
+                        else -> {
+                            // Eliminate the vacancy stall: dynamically assign floor to a non-last AI speaker
+                            val lastAISpeaker = conversationHistory.lastOrNull { it.first != "You" && it.first != "You (Rehan)" }?.first
+                            val availableAgents = listOf("Alex", "Sam", "Chris").filter { it != lastAISpeaker }
+                            floorOwner = if (availableAgents.isNotEmpty()) availableAgents.random() else listOf("Alex", "Sam", "Chris").random()
+                        }
                     }
                 } else {
-                    floorOwner = ""
+                    // Fallback if voice processing returns null text to keep discussion moving
+                    val lastAISpeaker = conversationHistory.lastOrNull { it.first != "You" && it.first != "You (Rehan)" }?.first
+                    val availableAgents = listOf("Alex", "Sam", "Chris").filter { it != lastAISpeaker }
+                    floorOwner = if (availableAgents.isNotEmpty()) availableAgents.random() else listOf("Alex", "Sam", "Chris").random()
                 }
                 activeSpeaker = ""
                 isAgentThinking = false
-                // Agents will autonomously respond within their randomised delay windows
+                // Force immediate invocation of autonomous loops to answer the user without delay
                 launchAutonomousAgentLoops()
             }
             override fun onPartialResults(partialResults: Bundle?) {}
