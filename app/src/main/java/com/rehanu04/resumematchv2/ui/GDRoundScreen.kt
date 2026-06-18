@@ -1154,7 +1154,6 @@ fun GroupDiscussionScreen(
                 activeSpeaker = ""
                 floorOwner = ""
                 isAgentThinking = false
-                launchAutonomousAgentLoops()
             }
             override fun onResults(results: Bundle?) {
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -1186,8 +1185,6 @@ fun GroupDiscussionScreen(
                 }
                 activeSpeaker = ""
                 isAgentThinking = false
-                // Force immediate invocation of autonomous loops to answer the user without delay
-                launchAutonomousAgentLoops()
             }
             override fun onPartialResults(partialResults: Bundle?) {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -1343,7 +1340,6 @@ fun GroupDiscussionScreen(
                                 activeSpeaker = ""
                                 floorOwner = ""
                                 isAgentThinking = false
-                                launchAutonomousAgentLoops()
                             } else {
                                 stopAllAgents()
                                 startListening()
