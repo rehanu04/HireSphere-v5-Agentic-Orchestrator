@@ -495,15 +495,24 @@ fun GroupDiscussionScreen(
                 // Isolated Sandbox Memory Compiler
                 val chatHistoryStr = JSONArray().apply {
                     conversationHistory.forEach { (spk, txt) ->
-                        val formattedSpk = if (spk == agentName) "YOU" else "USER: ${spk.uppercase()}"
+                        val formattedSpk = if (spk == agentName) "YOU" else if (spk == "You") "USER: REHAN" else "USER: ${spk.uppercase()}"
                         put("[$formattedSpk]: $txt")
                     }
                 }.toString()
 
-                val linguisticBalancer = if (listOf("Social Media's Impact on Mental Health", "Remote Work vs. Office Culture", "EdTech & the Future of Online Education").contains(selectedTopic)) {
-                    "LINGUISTIC DOMAIN: This is a general human/social case study. You must strictly speak in a natural, grounded, everyday human tone. Do not use highly dense corporate jargon, engineering architectures, or abstract 'structural' boilerplate phrases. Speak like a real peer participant in a standard university group discussion."
-                } else ""
-                val nameAnchor = "NAME ANCHOR: When responding to a [USER: REHAN] context block, you must explicitly address the user as 'Rehan' in your response."
+                val socialTopics = listOf("Social Media's Impact on Mental Health", "Remote Work vs. Office Culture", "EdTech & the Future of Online Education", "Data Privacy in the Digital Age", "Artificial Intelligence in Healthcare")
+                val isSocial = socialTopics.contains(selectedTopic)
+                val linguisticBalancer = if (isSocial) {
+                    "LINGUISTIC DOMAIN: This is a Social/General topic. You must strictly speak in a natural, grounded, everyday human tone. Speak like a typical university student or working professional. Completely OUTLAW highly dense corporate jargon like 'structural approach', 'parameter bounds', 'alignment matrices', or abstract mechanical frames."
+                } else {
+                    "LINGUISTIC DOMAIN: This is a Technical/Industrial topic. Maintain high-fidelity, advanced technical prose and industry-standard terminology where appropriate, but remain conversational."
+                }
+                val lastSpk = conversationHistory.lastOrNull()?.first
+                val nameAnchor = if (lastSpk == "You") {
+                    "CRITICAL NAME-ECHO: The user (Rehan) just spoke to you. You MUST open your response by explicitly addressing the user by name ('Rehan') within the first 4 tokens. You MUST also echo specific nouns and context from their point before shifting to your stance."
+                } else {
+                    "NAME ANCHOR: Address other agents by their name if you are responding to them."
+                }
                 val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point.\n$nameAnchor\n$linguisticBalancer"
                 val repetitionBan = "REPETITION BAN: You are STRICTLY FORBIDDEN from repeating previously used phrases. Never use generic filler."
                 val conversationalFlow = "FORMAT: Use short, punchy, human-like chat responses. Be dynamic and highly reactive."
@@ -637,15 +646,24 @@ fun GroupDiscussionScreen(
                             try {
                                 val chatHistoryStr = JSONArray().apply {
                                     conversationHistory.forEach { (spk, txt) ->
-                                        val formattedSpk = if (spk == agentName) "YOU" else "USER: ${spk.uppercase()}"
+                                        val formattedSpk = if (spk == agentName) "YOU" else if (spk == "You") "USER: REHAN" else "USER: ${spk.uppercase()}"
                                         put("[$formattedSpk]: $txt")
                                     }
                                 }.toString()
 
-                                val linguisticBalancer = if (listOf("Social Media's Impact on Mental Health", "Remote Work vs. Office Culture", "EdTech & the Future of Online Education").contains(selectedTopic)) {
-                                    "LINGUISTIC DOMAIN: This is a general human/social case study. You must strictly speak in a natural, grounded, everyday human tone. Do not use highly dense corporate jargon, engineering architectures, or abstract 'structural' boilerplate phrases. Speak like a real peer participant in a standard university group discussion."
-                                } else ""
-                                val nameAnchor = "NAME ANCHOR: When responding to a [USER: REHAN] context block, you must explicitly address the user as 'Rehan' in your response."
+                                val socialTopics = listOf("Social Media's Impact on Mental Health", "Remote Work vs. Office Culture", "EdTech & the Future of Online Education", "Data Privacy in the Digital Age", "Artificial Intelligence in Healthcare")
+                                val isSocial = socialTopics.contains(selectedTopic)
+                                val linguisticBalancer = if (isSocial) {
+                                    "LINGUISTIC DOMAIN: This is a Social/General topic. You must strictly speak in a natural, grounded, everyday human tone. Speak like a typical university student or working professional. Completely OUTLAW highly dense corporate jargon like 'structural approach', 'parameter bounds', 'alignment matrices', or abstract mechanical frames."
+                                } else {
+                                    "LINGUISTIC DOMAIN: This is a Technical/Industrial topic. Maintain high-fidelity, advanced technical prose and industry-standard terminology where appropriate, but remain conversational."
+                                }
+                                val lastSpk = conversationHistory.lastOrNull()?.first
+                                val nameAnchor = if (lastSpk == "You") {
+                                    "CRITICAL NAME-ECHO: The user (Rehan) just spoke to you. You MUST open your response by explicitly addressing the user by name ('Rehan') within the first 4 tokens. You MUST also echo specific nouns and context from their point before shifting to your stance."
+                                } else {
+                                    "NAME ANCHOR: Address other agents by their name if you are responding to them."
+                                }
                                 val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point.\n$nameAnchor\n$linguisticBalancer"
                                 val repetitionBan = "REPETITION BAN: You are STRICTLY FORBIDDEN from repeating previously used phrases. Never use generic filler."
                                 val conversationalFlow = "FORMAT: Use short, punchy, human-like chat responses. Be dynamic and highly reactive."
