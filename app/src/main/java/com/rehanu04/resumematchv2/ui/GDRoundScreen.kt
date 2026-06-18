@@ -868,73 +868,10 @@ fun GroupDiscussionScreen(
         if (agentLoopsStarted) return
         agentLoopsStarted = true
 
-        // ── Asynchronous AI-on-AI Interruption Monitor ──
+        // 1. Alex Turn Loop (Against)
         scope.launch(Dispatchers.Default) {
             while (phase == GDPhase.RUNNING) {
-                delay((3000L..5000L).random())
-                var currentSpeaker = ""
-                withContext(Dispatchers.Main) { currentSpeaker = activeSpeaker }
-                
-                if (currentSpeaker.isNotEmpty() && currentSpeaker != "You") {
-                    // 15% chance to interrupt someone else's speech
-                    if ((1..100).random() <= 15 && conversationHistory.size > 2) {
-                        val interrupters = listOf("Alex", "Sam", "Chris").filter { it != currentSpeaker }
-                        val interrupter = interrupters.random()
-                        
-                        withContext(Dispatchers.Main) {
-                            val speakerDuration = System.currentTimeMillis() - activeSpeakerStartTime
-                            if (activeSpeaker == currentSpeaker && !isMicActive && phase == GDPhase.RUNNING && speakerDuration >= 10_000L) {
-                                stopAllAgents()
-                                floorOwner = interrupter
-                                activeSpeaker = interrupter
-                                interruptionCount++
-                                
-                                val role = when (interrupter) {
-                                    "Alex" -> "against"
-                                    "Sam" -> "for"
-                                    else -> "neutral"
-                                }
-                                val color = when (interrupter) {
-                                    "Alex" -> Color(0xFF60A5FA)
-                                    "Sam" -> Color(0xFFF472B6)
-                                    else -> Color(0xFF34D399)
-                                }
-                                val tts = when (interrupter) {
-                                    "Alex" -> ttsAlex
-                                    "Sam" -> ttsSam
-                                    else -> ttsChris
-                                }
-                                val prefix = when (interrupter) {
-                                    "Alex" -> "GD_ALEX"
-                                    "Sam" -> "GD_SAM"
-                                    else -> "GD_CHRIS"
-                                }
-                                val interjection = listOf(
-                                    "Hold on, I have to jump in here — ",
-                                    "Wait, let's be careful about that — ",
-                                    "I see it a bit differently — "
-                                ).random()
-                                
-                                speakAgentWithLLM(
-                                    agentName = interrupter,
-                                    agentRole = role,
-                                    agentColor = color,
-                                    tts = tts,
-                                    utterancePrefix = "${prefix}_INT",
-                                    interjection = interjection,
-                                    onDone = {} 
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 1. Alex Loop (Against)
-        scope.launch(Dispatchers.Default) {
-            while (phase == GDPhase.RUNNING) {
-                delay((400L..800L).random()) // Safe pacing delay
+                delay((400L..800L).random()) // Prevent race condition collisions
                 val lastSpeaker = conversationHistory.lastOrNull()?.first
                 
                 if (!isMicActive && floorOwner == "Alex" && !isAgentThinking && lastSpeaker != "Alex") {
@@ -957,7 +894,7 @@ fun GroupDiscussionScreen(
             }
         }
 
-        // 2. Sam Loop (For)
+        // 2. Sam Turn Loop (For)
         scope.launch(Dispatchers.Default) {
             while (phase == GDPhase.RUNNING) {
                 delay((400L..800L).random())
@@ -983,7 +920,7 @@ fun GroupDiscussionScreen(
             }
         }
 
-        // 3. Chris Loop (Neutral)
+        // 3. Chris Turn Loop (Neutral)
         scope.launch(Dispatchers.Default) {
             while (phase == GDPhase.RUNNING) {
                 delay((400L..800L).random())
@@ -1145,8 +1082,9 @@ fun GroupDiscussionScreen(
             override fun onError(error: Int) {
                 isMicActive = false
                 activeSpeaker = ""
-                floorOwner = ""
+                floorOwner = listOf("Alex", "Sam", "Chris").random()
                 isAgentThinking = false
+                launchAutonomousAgentLoops()
             }
             override fun onResults(results: Bundle?) {
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -1178,6 +1116,7 @@ fun GroupDiscussionScreen(
                 }
                 activeSpeaker = ""
                 isAgentThinking = false
+                launchAutonomousAgentLoops()
             }
             override fun onPartialResults(partialResults: Bundle?) {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -1308,6 +1247,7 @@ fun GroupDiscussionScreen(
                                             utterancePrefix = "GD_OPEN_ALEX",
                                             preProvidedText = "Alright, let's open the discussion on $selectedTopic. Personally, I'm quite skeptical because there are significant underlying risks that people often ignore.",
                                             onDone = {
+                                                floorOwner = listOf("Sam", "Chris").random()
                                                 launchAutonomousAgentLoops()
                                             }
                                         )
