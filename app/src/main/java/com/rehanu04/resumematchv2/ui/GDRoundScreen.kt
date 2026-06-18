@@ -945,7 +945,11 @@ fun GroupDiscussionScreen(
                         speakAgentWithLLM(
                             agentName = "Alex", agentRole = "against",
                             agentColor = Color(0xFF60A5FA), tts = ttsAlex,
-                            utterancePrefix = "GD_ALEX", interjection = interjection, onDone = { done = true }
+                            utterancePrefix = "GD_ALEX", interjection = interjection,
+                            onDone = { 
+                                floorOwner = listOf("Sam", "Chris").random()
+                                done = true 
+                            }
                         )
                     }
                     while (!done && floorOwner == "Alex" && phase == GDPhase.RUNNING) { delay(100L) }
@@ -967,7 +971,11 @@ fun GroupDiscussionScreen(
                         speakAgentWithLLM(
                             agentName = "Sam", agentRole = "for",
                             agentColor = Color(0xFFF472B6), tts = ttsSam,
-                            utterancePrefix = "GD_SAM", interjection = interjection, onDone = { done = true }
+                            utterancePrefix = "GD_SAM", interjection = interjection,
+                            onDone = { 
+                                floorOwner = listOf("Alex", "Chris").random()
+                                done = true 
+                            }
                         )
                     }
                     while (!done && floorOwner == "Sam" && phase == GDPhase.RUNNING) { delay(100L) }
@@ -989,7 +997,11 @@ fun GroupDiscussionScreen(
                         speakAgentWithLLM(
                             agentName = "Chris", agentRole = "neutral",
                             agentColor = Color(0xFF34D399), tts = ttsChris,
-                            utterancePrefix = "GD_CHRIS", interjection = interjection, onDone = { done = true }
+                            utterancePrefix = "GD_CHRIS", interjection = interjection,
+                            onDone = { 
+                                floorOwner = listOf("Alex", "Sam").random()
+                                done = true 
+                            }
                         )
                     }
                     while (!done && floorOwner == "Chris" && phase == GDPhase.RUNNING) { delay(100L) }
