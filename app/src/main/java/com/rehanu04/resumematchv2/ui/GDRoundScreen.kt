@@ -1840,16 +1840,29 @@ private fun GDScorecardView(
     LaunchedEffect(Unit) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val chatHistoryArray = org.json.JSONArray()
+                // Compile the exact runtime transcript string natively
+                val transcriptBuilder = java.lang.StringBuilder()
                 for ((speaker, text) in conversationHistory) {
-                    chatHistoryArray.put("[$speaker]: $text")
+                    transcriptBuilder.append("[$speaker]: $text\n\n")
                 }
                 
+                val evaluationPrompt = """
+                    You are an elite Group Discussion Assessor evaluating the candidate 'You' on the topic '$topic'.
+                    Analyze the entire transcript provided below. Focus heavily on conversational dynamics:
+                    1) Identify exactly where the user 'You' spoke well and advanced the thread.
+                    2) Detail specific, hyper-targeted missed opportunities where the user remained silent. Explicitly reference what Sam, Alex, or Chris said where the user could have stepped in to support, counter, or pivot the room (e.g., 'You could have replied directly to Sam when they mentioned... or challenged Chris on...').
+                    Address the candidate directly as 'you'. Provide actionable behavioral coaching tips.
+                    Output your entire evaluation as clean, plain paragraph text. Do NOT use JSON formatting, code blocks, or nested arrays.
+                    
+                    TRANSCRIPT TO AUDIT:
+                    ${transcriptBuilder.toString()}
+                """.trimIndent()
+
                 val requestBody = org.json.JSONObject().apply {
-                    put("target_role", "Expert Evaluator")
-                    put("job_description", "You are an expert GD Evaluator assessing the user 'Rehan' on the topic '$topic'. Provide concise behavioral feedback. Format your response clearly: 1) What Rehan did well. 2) What Rehan should improve, specifically referencing actual points from the chat. Address Rehan directly as 'you'. Instead of just printing what Rehan should have said, explain *why* saying it would have been better. Do not mention numeric scores. Output plain text directly, no JSON formatting.")
+                    put("target_role", "Expert GD Evaluator")
+                    put("job_description", evaluationPrompt)
                     put("vault_data", "")
-                    put("chat_history", chatHistoryArray.toString())
+                    put("chat_history", "[]") // Cleared to keep context locked to the template string
                     put("user_audio_text", "")
                     put("elapsed_seconds", 0)
                 }.toString()
@@ -1864,18 +1877,24 @@ private fun GDScorecardView(
                     var bodyString = resp.body?.string()?.trim() ?: ""
                     if (bodyString.startsWith("```json")) {
                         bodyString = bodyString.removePrefix("```json").removeSuffix("```").trim()
+                    } else if (bodyString.startsWith("```")) {
+                        bodyString = bodyString.removePrefix("```").removeSuffix("```").trim()
                     }
+                    
                     try {
                         val jsonObject = org.json.JSONObject(bodyString)
-                        aiInsights = jsonObject.optString("reply", "").ifBlank { jsonObject.optString("ai_reply", "") }.ifBlank { bodyString }
+                        val refinedReply = jsonObject.optString("reply", "").ifBlank { 
+                            jsonObject.optString("ai_reply", "") 
+                        }.ifBlank { bodyString }
+                        aiInsights = refinedReply
                     } catch (e: Exception) {
                         aiInsights = bodyString
                     }
                 } else {
-                    aiInsights = "Unable to fetch AI insights at this time."
+                    aiInsights = "Unable to fetch behavioral insights due to an upstream gateway state."
                 }
             } catch (e: Exception) {
-                aiInsights = "Network error: Could not fetch AI insights."
+                aiInsights = "Network sync anomaly: Could not establish a connection to the evaluation pipeline."
             } finally {
                 isLoadingInsights = false
             }
