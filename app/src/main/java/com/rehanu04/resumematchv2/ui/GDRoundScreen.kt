@@ -841,6 +841,24 @@ fun GroupDiscussionScreen(
     // Track whether autonomous debate loops have started
     var agentLoopsStarted by remember { mutableStateOf(false) }
 
+    // ── Event-Driven Background Pre-fetch Pipeline ──
+    LaunchedEffect(messages.size) {
+        if (phase == GDPhase.RUNNING) {
+            val lastSpeaker = conversationHistory.lastOrNull()?.first
+            if (lastSpeaker != null) {
+                if (lastSpeaker != "Alex" && floorOwner != "Alex") {
+                    scope.launch(Dispatchers.Default) { fetchAgentReply("Alex", "against") }
+                }
+                if (lastSpeaker != "Sam" && floorOwner != "Sam") {
+                    scope.launch(Dispatchers.Default) { fetchAgentReply("Sam", "for") }
+                }
+                if (lastSpeaker != "Chris" && floorOwner != "Chris") {
+                    scope.launch(Dispatchers.Default) { fetchAgentReply("Chris", "neutral") }
+                }
+            }
+        }
+    }
+
     // Verbal interjection prefixes each agent uses to claim the floor
     val alexInterjections  = listOf("I hear you, but — ", "That's a valid point, however — ", "I have a slightly different take — ", "Let's look at the other side — ")
     val samInterjections   = listOf("I completely agree, and — ", "Adding to that thought — ", "That's exactly it, plus — ", "To build on that idea — ")
@@ -913,106 +931,69 @@ fun GroupDiscussionScreen(
             }
         }
 
-        // ── Alex (Against) independent loop ──
+        // 1. Alex Loop (Against)
         scope.launch(Dispatchers.Default) {
-            delay((100L..250L).random())
             while (phase == GDPhase.RUNNING) {
+                delay((400L..800L).random()) // Safe pacing delay
                 val lastSpeaker = conversationHistory.lastOrNull()?.first
-                if (floorOwner != "" && floorOwner != "Alex" && lastSpeaker != "Alex") {
-                    fetchAgentReply("Alex", "against")
-                }
-                if (!isMicActive && (floorOwner == "" || floorOwner == "Alex") && !isAgentThinking && lastSpeaker != "Alex") {
-                    var acquired = false
+                
+                if (!isMicActive && floorOwner == "Alex" && !isAgentThinking && lastSpeaker != "Alex") {
+                    var done = false
                     withContext(Dispatchers.Main) {
-                        if (!isMicActive && (floorOwner == "" || floorOwner == "Alex") && !isAgentThinking && lastSpeaker != "Alex") {
-                            floorOwner = "Alex"
-                            acquired = true
-                        }
+                        val useInterjection = (0..3).random() == 0 && conversationHistory.size > 2
+                        val interjection = if (useInterjection) alexInterjections.random() else ""
+                        speakAgentWithLLM(
+                            agentName = "Alex", agentRole = "against",
+                            agentColor = Color(0xFF60A5FA), tts = ttsAlex,
+                            utterancePrefix = "GD_ALEX", interjection = interjection, onDone = { done = true }
+                        )
                     }
-                    if (acquired) {
-                        var done = false
-                        withContext(Dispatchers.Main) {
-                            // Prepend floor-claiming interjection if conditions are met
-                            val useInterjection = (0..3).random() == 0 && conversationHistory.size > 2
-                            val interjection = if (useInterjection) alexInterjections.random() else ""
-                            speakAgentWithLLM(
-                                agentName = "Alex", agentRole = "against",
-                                agentColor = Color(0xFF60A5FA), tts = ttsAlex,
-                                utterancePrefix = "GD_ALEX", interjection = interjection, onDone = { done = true }
-                            )
-                        }
-                        while (!done && floorOwner == "Alex") { delay(100L) }
-                    }
+                    while (!done && floorOwner == "Alex" && phase == GDPhase.RUNNING) { delay(100L) }
                 }
-                delay((150L..300L).random())
             }
         }
 
-        // ── Sam (For) independent loop ──
+        // 2. Sam Loop (For)
         scope.launch(Dispatchers.Default) {
-            delay((200L..350L).random())
             while (phase == GDPhase.RUNNING) {
+                delay((400L..800L).random())
                 val lastSpeaker = conversationHistory.lastOrNull()?.first
-                if (floorOwner != "" && floorOwner != "Sam" && lastSpeaker != "Sam") {
-                    fetchAgentReply("Sam", "for")
-                }
-                if (!isMicActive && (floorOwner == "" || floorOwner == "Sam") && !isAgentThinking && lastSpeaker != "Sam") {
-                    var acquired = false
+                
+                if (!isMicActive && floorOwner == "Sam" && !isAgentThinking && lastSpeaker != "Sam") {
+                    var done = false
                     withContext(Dispatchers.Main) {
-                        if (!isMicActive && (floorOwner == "" || floorOwner == "Sam") && !isAgentThinking && lastSpeaker != "Sam") {
-                            floorOwner = "Sam"
-                            acquired = true
-                        }
+                        val useInterjection = (0..3).random() == 0 && conversationHistory.size > 2
+                        val interjection = if (useInterjection) samInterjections.random() else ""
+                        speakAgentWithLLM(
+                            agentName = "Sam", agentRole = "for",
+                            agentColor = Color(0xFFF472B6), tts = ttsSam,
+                            utterancePrefix = "GD_SAM", interjection = interjection, onDone = { done = true }
+                        )
                     }
-                    if (acquired) {
-                        var done = false
-                        withContext(Dispatchers.Main) {
-                            val useInterjection = (0..3).random() == 0 && conversationHistory.size > 2
-                            val interjection = if (useInterjection) samInterjections.random() else ""
-                            speakAgentWithLLM(
-                                agentName = "Sam", agentRole = "for",
-                                agentColor = Color(0xFFF472B6), tts = ttsSam,
-                                utterancePrefix = "GD_SAM", interjection = interjection, onDone = { done = true }
-                            )
-                        }
-                        while (!done && floorOwner == "Sam") { delay(100L) }
-                    }
+                    while (!done && floorOwner == "Sam" && phase == GDPhase.RUNNING) { delay(100L) }
                 }
-                delay((150L..300L).random())
             }
         }
 
-        // ── Chris (Neutral) independent loop ──
+        // 3. Chris Loop (Neutral)
         scope.launch(Dispatchers.Default) {
-            delay((300L..450L).random())
             while (phase == GDPhase.RUNNING) {
+                delay((400L..800L).random())
                 val lastSpeaker = conversationHistory.lastOrNull()?.first
-                if (floorOwner != "" && floorOwner != "Chris" && lastSpeaker != "Chris") {
-                    fetchAgentReply("Chris", "neutral")
-                }
-                if (!isMicActive && (floorOwner == "" || floorOwner == "Chris") && !isAgentThinking && lastSpeaker != "Chris") {
-                    var acquired = false
+                
+                if (!isMicActive && floorOwner == "Chris" && !isAgentThinking && lastSpeaker != "Chris") {
+                    var done = false
                     withContext(Dispatchers.Main) {
-                        if (!isMicActive && (floorOwner == "" || floorOwner == "Chris") && !isAgentThinking && lastSpeaker != "Chris") {
-                            floorOwner = "Chris"
-                            acquired = true
-                        }
+                        val useInterjection = (0..3).random() == 0 && conversationHistory.size > 2
+                        val interjection = if (useInterjection) chrisInterjections.random() else ""
+                        speakAgentWithLLM(
+                            agentName = "Chris", agentRole = "neutral",
+                            agentColor = Color(0xFF34D399), tts = ttsChris,
+                            utterancePrefix = "GD_CHRIS", interjection = interjection, onDone = { done = true }
+                        )
                     }
-                    if (acquired) {
-                        var done = false
-                        withContext(Dispatchers.Main) {
-                            val useInterjection = (0..3).random() == 0 && conversationHistory.size > 2
-                            val interjection = if (useInterjection) chrisInterjections.random() else ""
-                            speakAgentWithLLM(
-                                agentName = "Chris", agentRole = "neutral",
-                                agentColor = Color(0xFF34D399), tts = ttsChris,
-                                utterancePrefix = "GD_CHRIS", interjection = interjection, onDone = { done = true }
-                            )
-                        }
-                        while (!done && floorOwner == "Chris") { delay(100L) }
-                    }
+                    while (!done && floorOwner == "Chris" && phase == GDPhase.RUNNING) { delay(100L) }
                 }
-                delay((150L..300L).random())
             }
         }
     }
