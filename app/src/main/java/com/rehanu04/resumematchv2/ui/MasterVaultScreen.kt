@@ -56,9 +56,9 @@ import kotlin.math.sin
 
 // --- DATA MODELS[cite: 1] ---
 data class VaultProject(val name: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "")
-data class VaultExperience(val company: String = "", val role: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "")
+data class VaultExperience(val company: String = "", val role: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "", val isPresent: Boolean = false)
 data class VaultEducation(val school: String = "", val degree: String = "", val year: String = "Year")
-data class VaultCertification(val name: String = "", val issuer: String = "", val year: String = "Year")
+data class VaultCertification(val name: String = "", val issuer: String = "", val year: String = "Year", val summary: String = "")
 data class VaultAchievement(val title: String = "", val issuer: String = "", val description: String = "")
 
 private val MONTH_OPTIONS = listOf("Not set", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
@@ -118,6 +118,7 @@ fun MasterVaultScreen(
 ) {
     val scope = rememberCoroutineScope()
     val gson = remember { Gson() }
+    val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = com.rehanu04.resumematchv2.data.UserProfile())
 
@@ -170,6 +171,7 @@ fun MasterVaultScreen(
         Scaffold(
             modifier = Modifier.statusBarsPadding(),
             containerColor = Color.Transparent,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
                     title = {
@@ -235,7 +237,20 @@ fun MasterVaultScreen(
                                             Surface(shape = RoundedCornerShape(18.dp), color = animatedAccent.copy(alpha = 0.1f), border = BorderStroke(1.dp, animatedAccent.copy(alpha = 0.1f)), modifier = Modifier.weight(1f)) {
                                                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                                     Text(text = skill, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                    IconButton(onClick = { /* Delete Logic */ }, modifier = Modifier.size(20.dp)) { Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = Color.Gray) }
+                                                    IconButton(onClick = { 
+                                                        val index = vaultSkills.indexOf(skill)
+                                                        if (index != -1) {
+                                                            val newList = vaultSkills.toMutableList().apply { removeAt(index) }
+                                                            scope.launch { 
+                                                                userProfileStore.saveUserProfile(userProfile.copy(savedSkillsJson = gson.toJson(newList))) 
+                                                                val result = snackbarHostState.showSnackbar("Item deleted", actionLabel = "UNDO", duration = SnackbarDuration.Short)
+                                                                if (result == SnackbarResult.ActionPerformed) {
+                                                                    val restoredList = newList.toMutableList().apply { add(index, skill) }
+                                                                    userProfileStore.saveUserProfile(userProfile.copy(savedSkillsJson = gson.toJson(restoredList)))
+                                                                }
+                                                            }
+                                                        }
+                                                    }, modifier = Modifier.size(20.dp)) { Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = Color.Gray) }
                                                 }
                                             }
                                         }
@@ -253,7 +268,17 @@ fun MasterVaultScreen(
                         else VaultScrollContainer(maxHeight = 320, itemCount = vaultProjects.size, threshold = 2) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 vaultProjects.forEachIndexed { idx, proj ->
-                                    VaultAssetCard(title = proj.name, subtitle = "${proj.startMonth} ${proj.startYear} - ${proj.endMonth} ${proj.endYear}", bullets = proj.bullets, accent = animatedAccent, onEdit = { editingProjectIndex = idx; tempProject = proj }, onDelete = {})
+                                    VaultAssetCard(title = proj.name, subtitle = "${proj.startMonth} ${proj.startYear} - ${proj.endMonth} ${proj.endYear}", bullets = proj.bullets, accent = animatedAccent, onEdit = { editingProjectIndex = idx; tempProject = proj }, onDelete = {
+                                        val newList = vaultProjects.toMutableList().apply { removeAt(idx) }
+                                        scope.launch {
+                                            userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(newList)))
+                                            val result = snackbarHostState.showSnackbar("Item deleted", actionLabel = "UNDO", duration = SnackbarDuration.Short)
+                                            if (result == SnackbarResult.ActionPerformed) {
+                                                val restoredList = newList.toMutableList().apply { add(idx, proj) }
+                                                userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(restoredList)))
+                                            }
+                                        }
+                                    })
                                 }
                             }
                         }
@@ -266,7 +291,17 @@ fun MasterVaultScreen(
                         else VaultScrollContainer(maxHeight = 320, itemCount = vaultExperience.size, threshold = 2) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 vaultExperience.forEachIndexed { idx, exp ->
-                                    VaultAssetCard(title = exp.company, subtitle = "${exp.role} | ${exp.startMonth} - ${exp.endMonth}", bullets = exp.bullets, accent = animatedAccent, onEdit = { editingExpIndex = idx; tempExperience = exp }, onDelete = {})
+                                    VaultAssetCard(title = exp.company, subtitle = "${exp.role} | ${exp.startMonth} ${exp.startYear} - ${if (exp.isPresent) "Present" else "${exp.endMonth} ${exp.endYear}"}", bullets = exp.bullets, accent = animatedAccent, onEdit = { editingExpIndex = idx; tempExperience = exp }, onDelete = {
+                                        val newList = vaultExperience.toMutableList().apply { removeAt(idx) }
+                                        scope.launch {
+                                            userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(newList)))
+                                            val result = snackbarHostState.showSnackbar("Item deleted", actionLabel = "UNDO", duration = SnackbarDuration.Short)
+                                            if (result == SnackbarResult.ActionPerformed) {
+                                                val restoredList = newList.toMutableList().apply { add(idx, exp) }
+                                                userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(restoredList)))
+                                            }
+                                        }
+                                    })
                                 }
                             }
                         }
@@ -278,7 +313,17 @@ fun MasterVaultScreen(
                         if (vaultAchievements.isEmpty()) AssistanceCTA(section = "Achievements", onGo = onGoToAssistant, accent = animatedAccent)
                         else VaultScrollContainer(maxHeight = 320, itemCount = vaultAchievements.size, threshold = 2) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                vaultAchievements.forEachIndexed { i, ach -> VaultAssetCard(title = ach.title, subtitle = ach.issuer, bullets = ach.description, accent = animatedAccent, onEdit = { editingAchIndex = i; tempAch = ach }, onDelete = {}) }
+                                vaultAchievements.forEachIndexed { i, ach -> VaultAssetCard(title = ach.title, subtitle = ach.issuer, bullets = ach.description, accent = animatedAccent, onEdit = { editingAchIndex = i; tempAch = ach }, onDelete = {
+                                    val newList = vaultAchievements.toMutableList().apply { removeAt(i) }
+                                    scope.launch {
+                                        userProfileStore.saveUserProfile(userProfile.copy(savedAchievementsJson = gson.toJson(newList)))
+                                        val result = snackbarHostState.showSnackbar("Item deleted", actionLabel = "UNDO", duration = SnackbarDuration.Short)
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            val restoredList = newList.toMutableList().apply { add(i, ach) }
+                                            userProfileStore.saveUserProfile(userProfile.copy(savedAchievementsJson = gson.toJson(restoredList)))
+                                        }
+                                    }
+                                }) }
                             }
                         }
                     }
@@ -289,7 +334,17 @@ fun MasterVaultScreen(
                         if (vaultEducation.isEmpty()) AssistanceCTA(section = "Education", onGo = onGoToAssistant, accent = animatedAccent)
                         else VaultScrollContainer(maxHeight = 320, itemCount = vaultEducation.size, threshold = 2) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                vaultEducation.forEachIndexed { i, edu -> VaultAssetCard(title = edu.school, subtitle = "${edu.degree} (${edu.year})", bullets = "", accent = animatedAccent, onEdit = { editingEduIndex = i; tempEducation = edu }, onDelete = {}) }
+                                vaultEducation.forEachIndexed { i, edu -> VaultAssetCard(title = edu.school, subtitle = "${edu.degree} (${edu.year})", bullets = "", accent = animatedAccent, onEdit = { editingEduIndex = i; tempEducation = edu }, onDelete = {
+                                    val newList = vaultEducation.toMutableList().apply { removeAt(i) }
+                                    scope.launch {
+                                        userProfileStore.saveUserProfile(userProfile.copy(savedEducationJson = gson.toJson(newList)))
+                                        val result = snackbarHostState.showSnackbar("Item deleted", actionLabel = "UNDO", duration = SnackbarDuration.Short)
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            val restoredList = newList.toMutableList().apply { add(i, edu) }
+                                            userProfileStore.saveUserProfile(userProfile.copy(savedEducationJson = gson.toJson(restoredList)))
+                                        }
+                                    }
+                                }) }
                             }
                         }
                     }
@@ -300,7 +355,17 @@ fun MasterVaultScreen(
                         if (vaultCertifications.isEmpty()) AssistanceCTA(section = "Certifications", onGo = onGoToAssistant, accent = animatedAccent)
                         else VaultScrollContainer(maxHeight = 320, itemCount = vaultCertifications.size, threshold = 2) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                vaultCertifications.forEachIndexed { i, cert -> VaultAssetCard(title = cert.name, subtitle = "${cert.issuer} (${cert.year})", bullets = "", accent = animatedAccent, onEdit = { editingCertIndex = i; tempCert = cert }, onDelete = {}) }
+                                vaultCertifications.forEachIndexed { i, cert -> VaultAssetCard(title = cert.name, subtitle = "${cert.issuer} (${cert.year})", bullets = cert.summary, accent = animatedAccent, onEdit = { editingCertIndex = i; tempCert = cert }, onDelete = {
+                                    val newList = vaultCertifications.toMutableList().apply { removeAt(i) }
+                                    scope.launch {
+                                        userProfileStore.saveUserProfile(userProfile.copy(savedCertificationsJson = gson.toJson(newList)))
+                                        val result = snackbarHostState.showSnackbar("Item deleted", actionLabel = "UNDO", duration = SnackbarDuration.Short)
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            val restoredList = newList.toMutableList().apply { add(i, cert) }
+                                            userProfileStore.saveUserProfile(userProfile.copy(savedCertificationsJson = gson.toJson(restoredList)))
+                                        }
+                                    }
+                                }) }
                             }
                         }
                     }
@@ -331,6 +396,10 @@ fun MasterVaultScreen(
                     PremiumSelection(MONTH_OPTIONS, tempProject.startMonth, animatedAccent, Modifier.weight(1f)) { tempProject = tempProject.copy(startMonth = it) }
                     PremiumSelection(YEAR_OPTIONS, tempProject.startYear, animatedAccent, Modifier.weight(1f)) { tempProject = tempProject.copy(startYear = it) }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PremiumSelection(MONTH_OPTIONS, tempProject.endMonth, animatedAccent, Modifier.weight(1f)) { tempProject = tempProject.copy(endMonth = it) }
+                    PremiumSelection(YEAR_OPTIONS, tempProject.endYear, animatedAccent, Modifier.weight(1f)) { tempProject = tempProject.copy(endYear = it) }
+                }
                 PremiumTextField("Detailed Bullets", tempProject.bullets, animatedAccent, Modifier.height(140.dp)) { tempProject = tempProject.copy(bullets = it) }
             }
         }
@@ -356,6 +425,20 @@ fun MasterVaultScreen(
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 PremiumTextField("Organization *", tempExperience.company, animatedAccent) { tempExperience = tempExperience.copy(company = it) }
                 PremiumTextField("Role", tempExperience.role, animatedAccent) { tempExperience = tempExperience.copy(role = it) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PremiumSelection(MONTH_OPTIONS, tempExperience.startMonth, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(startMonth = it) }
+                    PremiumSelection(YEAR_OPTIONS, tempExperience.startYear, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(startYear = it) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = tempExperience.isPresent, onCheckedChange = { tempExperience = tempExperience.copy(isPresent = it) })
+                    Text("I currently work here", color = Color.White)
+                }
+                if (!tempExperience.isPresent) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PremiumSelection(MONTH_OPTIONS, tempExperience.endMonth, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(endMonth = it) }
+                        PremiumSelection(YEAR_OPTIONS, tempExperience.endYear, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(endYear = it) }
+                    }
+                }
                 PremiumTextField("bullets", tempExperience.bullets, animatedAccent, Modifier.height(100.dp)) { tempExperience = tempExperience.copy(bullets = it) }
             }
         }
@@ -383,6 +466,7 @@ fun MasterVaultScreen(
                 PremiumTextField("Certification Name *", tempCert.name, animatedAccent) { tempCert = tempCert.copy(name = it) }
                 PremiumTextField("Issuer", tempCert.issuer, animatedAccent) { tempCert = tempCert.copy(issuer = it) }
                 PremiumSelection(YEAR_OPTIONS, tempCert.year, animatedAccent) { tempCert = tempCert.copy(year = it) }
+                PremiumTextField("Summary", tempCert.summary, animatedAccent) { tempCert = tempCert.copy(summary = it) }
             }
         }
     }

@@ -348,9 +348,9 @@ fun GroupDiscussionScreen(
 
     val httpClient = remember {
         OkHttpClient.Builder()
-            .connectTimeout(120, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .writeTimeout(12, TimeUnit.SECONDS)
             .build()
     }
 
@@ -513,14 +513,14 @@ fun GroupDiscussionScreen(
                 } else {
                     "NAME ANCHOR: Address other agents by their name if you are responding to them."
                 }
-                val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point.\n$nameAnchor\n$linguisticBalancer"
-                val repetitionBan = "REPETITION BAN: You are STRICTLY FORBIDDEN from repeating previously used phrases. Never use generic filler."
-                val conversationalFlow = "FORMAT: Use short, punchy, human-like chat responses. Be dynamic and highly reactive."
+                val topicEnforcement = "CRITICAL MANDATE: You MUST explicitly use nouns and concepts related to '$selectedTopic' in your response. NEVER give a generic reply like 'I agree' or 'That's interesting'."
+                val chatbotOverride = "INSTRUCTION: You are $agentName. Stance: $agentRole. Read the chat history. DIRECTLY ADDRESS the last point made by the preceding speaker. Defend your stance on '$selectedTopic' fiercely but professionally."
+                val conversationalFlow = "FORMAT: 1-2 short, punchy, human-like sentences. Be highly reactive and specific."
                 
                 val latentKnowledge = warmupContexts[agentName] ?: ""
-                val latentContextInstruction = if (latentKnowledge.isNotEmpty()) "LATENT KNOWLEDGE (Use to inform your arguments): $latentKnowledge" else ""
+                val latentContextInstruction = if (latentKnowledge.isNotEmpty()) "LATENT KNOWLEDGE: $latentKnowledge" else ""
                 
-                val baseMeta = "$latentContextInstruction\n$chatbotOverride\n$repetitionBan\n$conversationalFlow"
+                val baseMeta = "$latentContextInstruction\n$chatbotOverride\n$nameAnchor\n$linguisticBalancer\n$topicEnforcement\n$conversationalFlow"
                 
                 val lastUserText = conversationHistory.lastOrNull { it.first == "You" }?.second ?: ""
                 val isMetaConversational = lastUserText.contains("Why isn't anyone speaking", ignoreCase = true) ||
@@ -539,12 +539,19 @@ fun GroupDiscussionScreen(
                 val finalMetaInstruction = if (metaGateInstruction.isNotEmpty()) "$metaGateInstruction\n$baseMeta" else baseMeta
 
                 val requestBody = JSONObject().apply {
-                    put("target_role", "$agentName (Stance: $agentRole)")
-                    put("job_description", "Group Discussion Topic: $selectedTopic.\n$finalMetaInstruction")
-                    put("vault_data", "")
+                    // Keep target role isolated to person constraints
+                    put("target_role", agentName) 
+                    
+                    // Lock the structural evaluation topic explicitly as the core parameter anchor
+                    put("job_description", "You are an active participant in a professional corporate Group Discussion panel. Topic: $selectedTopic. Your assigned debate perspective role is: $agentRole.")
+                    
+                    // Inject our critical sandbox isolation, name anchors, and linguistic restrictions here
+                    put("vault_data", finalMetaInstruction) 
+                    
+                    // Send the compiled rolling conversation log matrix cleanly
                     put("chat_history", chatHistoryStr)
                     put("user_audio_text", "")
-                    put("elapsed_seconds", 0)
+                    put("elapsed_seconds", 300 - timeLeft)
                 }.toString()
 
                 val req = Request.Builder()
@@ -664,14 +671,14 @@ fun GroupDiscussionScreen(
                                 } else {
                                     "NAME ANCHOR: Address other agents by their name if you are responding to them."
                                 }
-                                val chatbotOverride = "CRITICAL CHATBOT INSTRUCTION: You are $agentName. Stance: $agentRole. Read the entire chat history, analyze the latest point made by the last speaker, and DIRECTLY ADDRESS IT. Do not monologue. Do not summarize. Directly counter or support the last point.\n$nameAnchor\n$linguisticBalancer"
-                                val repetitionBan = "REPETITION BAN: You are STRICTLY FORBIDDEN from repeating previously used phrases. Never use generic filler."
-                                val conversationalFlow = "FORMAT: Use short, punchy, human-like chat responses. Be dynamic and highly reactive."
+                                val topicEnforcement = "CRITICAL MANDATE: You MUST explicitly use nouns and concepts related to '$selectedTopic' in your response. NEVER give a generic reply like 'I agree' or 'That's interesting'."
+                                val chatbotOverride = "INSTRUCTION: You are $agentName. Stance: $agentRole. Read the chat history. DIRECTLY ADDRESS the last point made by the preceding speaker. Defend your stance on '$selectedTopic' fiercely but professionally."
+                                val conversationalFlow = "FORMAT: 1-2 short, punchy, human-like sentences. Be highly reactive and specific."
                                 
                                 val latentKnowledge = warmupContexts[agentName] ?: ""
-                                val latentContextInstruction = if (latentKnowledge.isNotEmpty()) "LATENT KNOWLEDGE (Use to inform your arguments): $latentKnowledge" else ""
+                                val latentContextInstruction = if (latentKnowledge.isNotEmpty()) "LATENT KNOWLEDGE: $latentKnowledge" else ""
                                 
-                                val baseMeta = "$latentContextInstruction\n$chatbotOverride\n$repetitionBan\n$conversationalFlow"
+                                val baseMeta = "$latentContextInstruction\n$chatbotOverride\n$nameAnchor\n$linguisticBalancer\n$topicEnforcement\n$conversationalFlow"
                             
                             val metaGateInstruction = if (isMetaConversational) {
                                 "META-CONVERSATION: The user ('$lastUserText') is talking outside the debate. Acknowledge this directly as a chatbot."
@@ -680,12 +687,19 @@ fun GroupDiscussionScreen(
                             val finalMetaInstruction = if (metaGateInstruction.isNotEmpty()) "$metaGateInstruction\n$baseMeta" else baseMeta
 
                             val requestBody = JSONObject().apply {
-                                put("target_role", "$agentName (Stance: $agentRole)")
-                                put("job_description", "Group Discussion Topic: $selectedTopic.\n$finalMetaInstruction")
-                                put("vault_data", "")
+                                // Keep target role isolated to person constraints
+                                put("target_role", agentName) 
+                                
+                                // Lock the structural evaluation topic explicitly as the core parameter anchor
+                                put("job_description", "You are an active participant in a professional corporate Group Discussion panel. Topic: $selectedTopic. Your assigned debate perspective role is: $agentRole.")
+                                
+                                // Inject our critical sandbox isolation, name anchors, and linguistic restrictions here
+                                put("vault_data", finalMetaInstruction) 
+                                
+                                // Send the compiled rolling conversation log matrix cleanly
                                 put("chat_history", chatHistoryStr)
                                 put("user_audio_text", "")
-                                put("elapsed_seconds", 0)
+                                put("elapsed_seconds", 300 - timeLeft)
                             }.toString()
 
                             val req = Request.Builder()
@@ -732,28 +746,19 @@ fun GroupDiscussionScreen(
                         val nameStr = if (lastSpeaker == "You") ", Rehan" else ""
                         val fallbackPhrases = when (agentRole) {
                             "against" -> listOf(
-                                "That's an interesting perspective%s, but I'm still convinced there are significant risks we aren't discussing.",
-                                "You make a fair point%s, though I still have my reservations about the structural approach.",
-                                "I hear what you're saying%s. However, the potential downsides still seem too high to me.",
-                                "That's a bold claim%s. I'm just not sure the data fully supports that kind of optimism.",
-                                "I see where you're coming from%s, but we really need to verify how that aligns with reality.",
-                                "Valid point%s, but I still believe we need a much more cautious approach here."
+                                "I hear your point%s, but regarding $selectedTopic, we cannot ignore the issues of $stanceKeywords.",
+                                "That might be true%s, but when we look at $selectedTopic, the risks like $stanceKeywords are just too high to ignore.",
+                                "I see your angle%s. However, the data on $selectedTopic points directly to $stanceKeywords, which is highly concerning."
                             )
                             "for" -> listOf(
-                                "I completely agree with the direction of that point%s. The scaling potential here is huge.",
-                                "Exactly%s. If we organize our approach around those benefits, the upside is massive.",
-                                "That's a great perspective%s. I think leveraging that effectively will accelerate our goals.",
-                                "I'm fully on board with that optimistic vision%s. It aligns perfectly with what we need.",
-                                "Spot on%s. The upside potential of that concept is exactly why we should push forward.",
-                                "I see it the exact same way%s. It's a great opportunity to accelerate the outcome."
+                                "I completely agree%s. If we push forward with $selectedTopic, the benefits of $stanceKeywords are massive.",
+                                "Exactly%s. Embracing $selectedTopic drives $stanceKeywords, which is exactly what we need to accelerate our goals.",
+                                "Spot on%s. The upside potential of $selectedTopic is clear when you consider $stanceKeywords."
                             )
                             else -> listOf(
-                                "Both sides have valid points here%s. It's really about finding that neutral baseline.",
-                                "I'm carefully weighing both sides of that argument%s. It's definitely not black and white.",
-                                "That's a complex angle%s. We need to balance the implications before moving too fast.",
-                                "I think the middle ground is the safest bet here%s. Compliance and metrics are key.",
-                                "I see the merit in both arguments%s. It's a very nuanced topic.",
-                                "Let's evaluate the objective reality of that statement%s. There are pros and cons to both."
+                                "Both sides make fair points%s. With $selectedTopic, we must balance the extremes and focus on $stanceKeywords.",
+                                "I'm weighing both arguments%s. The reality of $selectedTopic is nuanced, particularly regarding $stanceKeywords.",
+                                "It's a complex angle%s. We need to evaluate the objective facts of $selectedTopic, such as $stanceKeywords, before moving too fast."
                             )
                         }
                         String.format(fallbackPhrases.random(), nameStr)
@@ -1774,7 +1779,7 @@ private fun GDScorecardView(
                 for ((speaker, text) in conversationHistory) {
                     transcriptBuilder.append("[$speaker]: $text\n\n")
                 }
-                
+
                 val evaluationPrompt = """
                     You are an elite Group Discussion Assessor evaluating the candidate 'You' on the topic '$topic'.
                     Analyze the entire transcript provided below. Focus heavily on conversational dynamics:
@@ -1800,7 +1805,7 @@ private fun GDScorecardView(
                     .url(apiBaseUrl.trimEnd('/') + "/v1/ai/live-interview")
                     .post(okhttp3.RequestBody.create("application/json".toMediaType(), requestBody))
                     .build()
-                    
+
                 val resp = httpClient.newCall(req).execute()
                 if (resp.isSuccessful) {
                     var bodyString = resp.body?.string()?.trim() ?: ""
@@ -1809,11 +1814,11 @@ private fun GDScorecardView(
                     } else if (bodyString.startsWith("```")) {
                         bodyString = bodyString.removePrefix("```").removeSuffix("```").trim()
                     }
-                    
+
                     try {
                         val jsonObject = org.json.JSONObject(bodyString)
-                        val refinedReply = jsonObject.optString("reply", "").ifBlank { 
-                            jsonObject.optString("ai_reply", "") 
+                        val refinedReply = jsonObject.optString("reply", "").ifBlank {
+                            jsonObject.optString("ai_reply", "")
                         }.ifBlank { bodyString }
                         aiInsights = refinedReply
                     } catch (e: Exception) {

@@ -50,8 +50,8 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 data class ChatMessage(val text: String, val isUser: Boolean, val isLoading: Boolean = false)
-data class AiExperience(val company: String = "", val role: String = "", val startMonth: String = "", val startYear: String = "", val endMonth: String = "", val endYear: String = "", val bullets: String = "")
-data class AiProject(val name: String = "", val startMonth: String = "", val startYear: String = "", val endMonth: String = "", val endYear: String = "", val bullets: String = "")
+data class AiExperience(val company: String = "", val role: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "", val isPresent: Boolean = false)
+data class AiProject(val name: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "")
 
 @Composable
 fun AiAssistantScreen(
@@ -172,19 +172,19 @@ fun AiAssistantScreen(
                         val listTypeSkill = object : TypeToken<List<String>>() {}.type
 
                         val existingProjectsRaw: List<AiProject>? = try { gson.fromJson(if (userProfile.savedProjectsJson.isBlank()) "[]" else userProfile.savedProjectsJson, listTypeProj) } catch (e: Exception) { emptyList() }
-                        val existingProjects = existingProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "", it.startYear ?: "", it.endMonth ?: "", it.endYear ?: "", it.bullets ?: "") } ?: emptyList()
+                        val existingProjects = existingProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "") } ?: emptyList()
 
                         val existingExpRaw: List<AiExperience>? = try { gson.fromJson(if (userProfile.savedExperienceJson.isBlank()) "[]" else userProfile.savedExperienceJson, listTypeExp) } catch (e: Exception) { emptyList() }
-                        val existingExp = existingExpRaw?.filterNotNull()?.map { AiExperience(it.company ?: "Unknown Company", it.role ?: "Unknown Role", it.startMonth ?: "", it.startYear ?: "", it.endMonth ?: "", it.endYear ?: "", it.bullets ?: "") } ?: emptyList()
+                        val existingExp = existingExpRaw?.filterNotNull()?.map { AiExperience(it.company ?: "Unknown Company", it.role ?: "Unknown Role", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "", it.isPresent) } ?: emptyList()
 
                         val existingSkillsRaw: List<String>? = try { gson.fromJson(if (userProfile.savedSkillsJson.isBlank()) "[]" else userProfile.savedSkillsJson, listTypeSkill) } catch (e: Exception) { emptyList() }
                         val existingSkills = existingSkillsRaw?.filterNotNull() ?: emptyList()
 
                         val parsedProjectsRaw: List<AiProject>? = try { gson.fromJson(newProjectsJson, listTypeProj) } catch (e: Exception) { emptyList() }
-                        val parsedProjects = parsedProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "", it.startYear ?: "", it.endMonth ?: "", it.endYear ?: "", it.bullets ?: "") } ?: emptyList()
+                        val parsedProjects = parsedProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "") } ?: emptyList()
 
                         val parsedExpRaw: List<AiExperience>? = try { gson.fromJson(newExperienceJson, listTypeExp) } catch (e: Exception) { emptyList() }
-                        val parsedExp = parsedExpRaw?.filterNotNull()?.map { AiExperience(it.company ?: "Unknown Company", it.role ?: "Unknown Role", it.startMonth ?: "", it.startYear ?: "", it.endMonth ?: "", it.endYear ?: "", it.bullets ?: "") } ?: emptyList()
+                        val parsedExp = parsedExpRaw?.filterNotNull()?.map { AiExperience(it.company ?: "Unknown Company", it.role ?: "Unknown Role", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "", it.isPresent) } ?: emptyList()
 
                         val parsedSkillsRaw: List<String>? = try { gson.fromJson(newSkillsJson, listTypeSkill) } catch (e: Exception) { emptyList() }
                         val parsedSkills = parsedSkillsRaw?.filterNotNull() ?: emptyList()
