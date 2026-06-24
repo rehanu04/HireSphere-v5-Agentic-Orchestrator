@@ -85,6 +85,19 @@ fun ProfileSetupScreen(
 
     val animatedAccentColor by androidx.compose.animation.animateColorAsState(targetValue = if (isDark) androidx.compose.ui.graphics.Color(0xFF22D3EE) else androidx.compose.ui.graphics.Color(0xFFFFD700), animationSpec = androidx.compose.animation.core.tween(800), label = "accent")
 
+    val bodyTextColor = if (isDark) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color(0xFFF8F4EA)
+    val titleColor = if (isDark) animatedAccentColor else androidx.compose.ui.graphics.Color(0xFFFFF5C0)
+
+    val tfColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = androidx.compose.ui.graphics.Color.White,
+        unfocusedTextColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.9f),
+        focusedLabelColor = animatedAccentColor,
+        unfocusedLabelColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f),
+        focusedBorderColor = animatedAccentColor,
+        unfocusedBorderColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.4f),
+        cursorColor = animatedAccentColor
+    )
+
     Box(modifier = Modifier.fillMaxSize()) {
         KineticBackground(accentColor = animatedAccentColor, isDark = isDark)
         
@@ -92,8 +105,8 @@ fun ProfileSetupScreen(
             containerColor = androidx.compose.ui.graphics.Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { Text("My AI Profile") },
-                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                    title = { Text("My AI Profile", color = titleColor) },
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = bodyTextColor) } },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
                 )
             },
@@ -127,12 +140,12 @@ fun ProfileSetupScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Set it once. Use it everywhere.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            HorizontalDivider()
+            Text("Set it once. Use it everywhere.", color = bodyTextColor)
+            HorizontalDivider(color = bodyTextColor.copy(alpha = 0.2f))
 
-            Text("Personal Information", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Text("Personal Information", style = MaterialTheme.typography.titleMedium, color = titleColor)
 
-            Text("Profile Photo", style = MaterialTheme.typography.titleSmall)
+            Text("Profile Photo", style = MaterialTheme.typography.titleSmall, color = bodyTextColor)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                     Text(if (profileImageB64.isBlank()) "Choose Photo" else "Replace Photo")
@@ -142,24 +155,25 @@ fun ProfileSetupScreen(
                 }
             }
 
-            OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text("First Name") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = lastName, onValueChange = { lastName = it }, label = { Text("Last Name") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text("First Name") }, modifier = Modifier.fillMaxWidth(), colors = tfColors)
+            OutlinedTextField(value = lastName, onValueChange = { lastName = it }, label = { Text("Last Name") }, modifier = Modifier.fillMaxWidth(), colors = tfColors)
 
             OutlinedTextField(
                 value = targetRole,
                 onValueChange = { targetRole = it },
                 label = { Text("Target Role") },
-                modifier = Modifier.fillMaxWidth().onFocusChanged { roleFocused = it.isFocused }
+                modifier = Modifier.fillMaxWidth().onFocusChanged { roleFocused = it.isFocused },
+                colors = tfColors
             )
             if (roleFocused && targetRole.isNotEmpty()) {
                 val matches = ROLE_SUGGESTIONS.filter { it.contains(targetRole, true) }.take(5)
                 if (matches.isNotEmpty()) {
                     Card(shape = RoundedCornerShape(14.dp), modifier = Modifier.padding(vertical = 4.dp)) {
                         Column(Modifier.padding(12.dp)) {
-                            Text("Suggestions", style = MaterialTheme.typography.titleSmall)
+                            Text("Suggestions", style = MaterialTheme.typography.titleSmall, color = bodyTextColor)
                             matches.forEach { s ->
-                                Text(s, modifier = Modifier.fillMaxWidth().clickable { targetRole = s; roleFocused = false }.padding(vertical = 10.dp))
-                                HorizontalDivider()
+                                Text(s, color = bodyTextColor, modifier = Modifier.fillMaxWidth().clickable { targetRole = s; roleFocused = false }.padding(vertical = 10.dp))
+                                HorizontalDivider(color = bodyTextColor.copy(alpha = 0.2f))
                             }
                         }
                     }
@@ -176,7 +190,8 @@ fun ProfileSetupScreen(
                     value = location,
                     onValueChange = { location = it; locExp = true },
                     label = { Text("Location") },
-                    modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryEditable, enabled = true).fillMaxWidth()
+                    modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryEditable, enabled = true).fillMaxWidth(),
+                    colors = tfColors
                 )
                 if (location.isNotEmpty()) {
                     val filteredLocs = LOCATION_SUGGESTIONS.filter { it.contains(location, true) }
@@ -195,15 +210,15 @@ fun ProfileSetupScreen(
                     }
                 }
             }
-            OutlinedTextField(value = summary, onValueChange = { summary = it }, label = { Text("About Me (Summary)") }, minLines = 4, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = summary, onValueChange = { summary = it }, label = { Text("About Me (Summary)") }, minLines = 4, modifier = Modifier.fillMaxWidth(), colors = tfColors)
 
-            HorizontalDivider()
-            Text("Contact & Links", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone Number") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = linkedin, onValueChange = { linkedin = it }, label = { Text("LinkedIn URL") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = github, onValueChange = { github = it }, label = { Text("GitHub URL") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = portfolio, onValueChange = { portfolio = it }, label = { Text("Portfolio URL") }, modifier = Modifier.fillMaxWidth())
+            HorizontalDivider(color = bodyTextColor.copy(alpha = 0.2f))
+            Text("Contact & Links", style = MaterialTheme.typography.titleMedium, color = titleColor)
+            OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), colors = tfColors)
+            OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone Number") }, modifier = Modifier.fillMaxWidth(), colors = tfColors)
+            OutlinedTextField(value = linkedin, onValueChange = { linkedin = it }, label = { Text("LinkedIn URL") }, modifier = Modifier.fillMaxWidth(), colors = tfColors)
+            OutlinedTextField(value = github, onValueChange = { github = it }, label = { Text("GitHub URL") }, modifier = Modifier.fillMaxWidth(), colors = tfColors)
+            OutlinedTextField(value = portfolio, onValueChange = { portfolio = it }, label = { Text("Portfolio URL") }, modifier = Modifier.fillMaxWidth(), colors = tfColors)
 
             Spacer(modifier = Modifier.height(24.dp))
             val btnGradient = if (isDark) {

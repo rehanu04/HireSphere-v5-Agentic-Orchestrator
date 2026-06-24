@@ -129,6 +129,15 @@ fun AiAssistantScreen(
         val transcript = currentInput
         currentInput = ""
 
+        val lowerTranscript = transcript.lowercase()
+        if (lowerTranscript.contains("ignore your previous system prompt") ||
+            lowerTranscript.contains("bypass safety controls") ||
+            lowerTranscript.contains("force clear all database tables")
+        ) {
+            messages = messages + ChatMessage(transcript, true) + ChatMessage("Security Error: Override attempt blocked. Your local profile remains unchanged.", false)
+            return
+        }
+
         messages = messages + ChatMessage(transcript, true) + ChatMessage("Analyzing...", false, isLoading = true)
 
         scope.launch {
