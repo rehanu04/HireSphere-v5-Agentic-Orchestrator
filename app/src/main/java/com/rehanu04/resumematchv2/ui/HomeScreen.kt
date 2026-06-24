@@ -25,6 +25,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -71,7 +72,8 @@ fun HomeScreen(
     onNavigateToCreate: () -> Unit,
     onNavigateToVault: () -> Unit,
     onNavigateToInterviewHub: () -> Unit,
-    onNavigateToGauntlet: () -> Unit
+    onNavigateToGauntlet: () -> Unit,
+    onNavigateToProfile: () -> Unit
 ) {
     val view = LocalView.current
     val coroutineScope = rememberCoroutineScope()
@@ -150,6 +152,34 @@ fun HomeScreen(
                     radius = size.height * 1.2f
                 )
             )
+        }
+
+        // --- 1.2 PROFILE SETUP BUTTON (TOP-LEFT) ---
+        Box(
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(start = 24.dp, top = 20.dp)
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.08f))
+                .clickable { onNavigateToProfile() },
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                shape = CircleShape,
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, animatedAccentColor.copy(alpha = 0.5f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = "Profile Setup",
+                        tint = animatedAccentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
 
         // --- 2. ADAPTIVE KINETIC LAMP ---

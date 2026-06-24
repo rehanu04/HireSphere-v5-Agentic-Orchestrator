@@ -51,7 +51,10 @@ import java.util.concurrent.TimeUnit
 
 data class ChatMessage(val text: String, val isUser: Boolean, val isLoading: Boolean = false)
 data class AiExperience(val company: String = "", val role: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "", val isPresent: Boolean = false)
-data class AiProject(val name: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "")
+data class AiProject(val name: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "", val isPresent: Boolean = false)
+data class AiEducation(val school: String = "", val degree: String = "", val year: String = "Year")
+data class AiCertification(val name: String = "", val issuer: String = "", val year: String = "Year", val summary: String = "")
+data class AiAchievement(val title: String = "", val issuer: String = "", val description: String = "")
 
 @Composable
 fun AiAssistantScreen(
@@ -167,12 +170,19 @@ fun AiAssistantScreen(
                         val newExperienceJson = parsedObj.optJSONArray("experience")?.toString() ?: "[]"
                         val newSkillsJson = parsedObj.optJSONArray("skills_suggested")?.toString() ?: "[]"
 
+                        val newEduJson = parsedObj.optJSONArray("education")?.toString() ?: parsedObj.optJSONArray("savedEducationJson")?.toString() ?: "[]"
+                        val newCertJson = parsedObj.optJSONArray("certifications")?.toString() ?: parsedObj.optJSONArray("savedCertificationsJson")?.toString() ?: "[]"
+                        val newAchJson = parsedObj.optJSONArray("achievements")?.toString() ?: parsedObj.optJSONArray("savedAchievementsJson")?.toString() ?: "[]"
+
                         val listTypeProj = object : TypeToken<List<AiProject>>() {}.type
                         val listTypeExp = object : TypeToken<List<AiExperience>>() {}.type
                         val listTypeSkill = object : TypeToken<List<String>>() {}.type
+                        val listTypeEdu = object : TypeToken<List<AiEducation>>() {}.type
+                        val listTypeCert = object : TypeToken<List<AiCertification>>() {}.type
+                        val listTypeAch = object : TypeToken<List<AiAchievement>>() {}.type
 
                         val existingProjectsRaw: List<AiProject>? = try { gson.fromJson(if (userProfile.savedProjectsJson.isBlank()) "[]" else userProfile.savedProjectsJson, listTypeProj) } catch (e: Exception) { emptyList() }
-                        val existingProjects = existingProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "") } ?: emptyList()
+                        val existingProjects = existingProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "", it.isPresent) } ?: emptyList()
 
                         val existingExpRaw: List<AiExperience>? = try { gson.fromJson(if (userProfile.savedExperienceJson.isBlank()) "[]" else userProfile.savedExperienceJson, listTypeExp) } catch (e: Exception) { emptyList() }
                         val existingExp = existingExpRaw?.filterNotNull()?.map { AiExperience(it.company ?: "Unknown Company", it.role ?: "Unknown Role", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "", it.isPresent) } ?: emptyList()
@@ -180,8 +190,17 @@ fun AiAssistantScreen(
                         val existingSkillsRaw: List<String>? = try { gson.fromJson(if (userProfile.savedSkillsJson.isBlank()) "[]" else userProfile.savedSkillsJson, listTypeSkill) } catch (e: Exception) { emptyList() }
                         val existingSkills = existingSkillsRaw?.filterNotNull() ?: emptyList()
 
+                        val existingEduRaw: List<AiEducation>? = try { gson.fromJson(if (userProfile.savedEducationJson.isBlank()) "[]" else userProfile.savedEducationJson, listTypeEdu) } catch (e: Exception) { emptyList() }
+                        val existingEdu = existingEduRaw?.filterNotNull() ?: emptyList()
+
+                        val existingCertRaw: List<AiCertification>? = try { gson.fromJson(if (userProfile.savedCertificationsJson.isBlank()) "[]" else userProfile.savedCertificationsJson, listTypeCert) } catch (e: Exception) { emptyList() }
+                        val existingCert = existingCertRaw?.filterNotNull() ?: emptyList()
+
+                        val existingAchRaw: List<AiAchievement>? = try { gson.fromJson(if (userProfile.savedAchievementsJson.isBlank()) "[]" else userProfile.savedAchievementsJson, listTypeAch) } catch (e: Exception) { emptyList() }
+                        val existingAch = existingAchRaw?.filterNotNull() ?: emptyList()
+
                         val parsedProjectsRaw: List<AiProject>? = try { gson.fromJson(newProjectsJson, listTypeProj) } catch (e: Exception) { emptyList() }
-                        val parsedProjects = parsedProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "") } ?: emptyList()
+                        val parsedProjects = parsedProjectsRaw?.filterNotNull()?.map { AiProject(it.name ?: "Unknown Project", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "", it.isPresent) } ?: emptyList()
 
                         val parsedExpRaw: List<AiExperience>? = try { gson.fromJson(newExperienceJson, listTypeExp) } catch (e: Exception) { emptyList() }
                         val parsedExp = parsedExpRaw?.filterNotNull()?.map { AiExperience(it.company ?: "Unknown Company", it.role ?: "Unknown Role", it.startMonth ?: "Not set", it.startYear ?: "Not set", it.endMonth ?: "Not set", it.endYear ?: "Not set", it.bullets ?: "", it.isPresent) } ?: emptyList()
@@ -189,9 +208,21 @@ fun AiAssistantScreen(
                         val parsedSkillsRaw: List<String>? = try { gson.fromJson(newSkillsJson, listTypeSkill) } catch (e: Exception) { emptyList() }
                         val parsedSkills = parsedSkillsRaw?.filterNotNull() ?: emptyList()
 
+                        val parsedEduRaw: List<AiEducation>? = try { gson.fromJson(newEduJson, listTypeEdu) } catch (e: Exception) { emptyList() }
+                        val parsedEdu = parsedEduRaw?.filterNotNull() ?: emptyList()
+
+                        val parsedCertRaw: List<AiCertification>? = try { gson.fromJson(newCertJson, listTypeCert) } catch (e: Exception) { emptyList() }
+                        val parsedCert = parsedCertRaw?.filterNotNull() ?: emptyList()
+
+                        val parsedAchRaw: List<AiAchievement>? = try { gson.fromJson(newAchJson, listTypeAch) } catch (e: Exception) { emptyList() }
+                        val parsedAch = parsedAchRaw?.filterNotNull() ?: emptyList()
+
                         val mergedProjects = (existingProjects + parsedProjects).groupBy { it.name.lowercase().trim() }.map { it.value.last() }
                         val mergedExp = (existingExp + parsedExp).groupBy { it.company.lowercase().trim() }.map { it.value.last() }
                         val mergedSkills = (existingSkills + parsedSkills).map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }
+                        val mergedEdu = (existingEdu + parsedEdu).groupBy { it.school.lowercase().trim() + it.degree.lowercase().trim() }.map { it.value.last() }
+                        val mergedCert = (existingCert + parsedCert).groupBy { it.name.lowercase().trim() }.map { it.value.last() }
+                        val mergedAch = (existingAch + parsedAch).groupBy { it.title.lowercase().trim() }.map { it.value.last() }
 
                         val finalMessages = messages.dropLast(1) + ChatMessage(aiReply, false)
                         messages = finalMessages
@@ -205,6 +236,9 @@ fun AiAssistantScreen(
                                 savedProjectsJson = gson.toJson(mergedProjects),
                                 savedExperienceJson = gson.toJson(mergedExp),
                                 savedSkillsJson = gson.toJson(mergedSkills),
+                                savedEducationJson = gson.toJson(mergedEdu),
+                                savedCertificationsJson = gson.toJson(mergedCert),
+                                savedAchievementsJson = gson.toJson(mergedAch),
                                 chatHistoryJson = gson.toJson(finalMessages)
                             )
                         )

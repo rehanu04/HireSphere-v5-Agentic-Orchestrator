@@ -55,7 +55,7 @@ import kotlin.math.sin
  */
 
 // --- DATA MODELS[cite: 1] ---
-data class VaultProject(val name: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "")
+data class VaultProject(val name: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "", val isPresent: Boolean = false)
 data class VaultExperience(val company: String = "", val role: String = "", val startMonth: String = "Not set", val startYear: String = "Not set", val endMonth: String = "Not set", val endYear: String = "Not set", val bullets: String = "", val isPresent: Boolean = false)
 data class VaultEducation(val school: String = "", val degree: String = "", val year: String = "Year")
 data class VaultCertification(val name: String = "", val issuer: String = "", val year: String = "Year", val summary: String = "")
@@ -75,10 +75,11 @@ fun KineticBackground(accentColor: Color, isDark: Boolean) {
         initialValue = 0f, targetValue = 2f * Math.PI.toFloat(),
         animationSpec = infiniteRepeatable(animation = tween(40000, easing = LinearEasing)), label = "drift"
     )
-    val bgColor = if (isDark) Color(0xFF010103) else Color(0xFF000806)
+    val targetBgColor = if (isDark) Color(0xFF010103) else Color(0xFF080600)
+    val animatedBgColor by animateColorAsState(targetValue = targetBgColor, animationSpec = tween(1000), label = "bgColor")
 
     Canvas(modifier = Modifier.fillMaxSize()) {
-        drawRect(color = bgColor)
+        drawRect(color = animatedBgColor)
 
         // Main Static Vertical Gradient (Colorful Top, Dark Bottom)[cite: 3]
         drawRect(
@@ -122,9 +123,9 @@ fun MasterVaultScreen(
     val context = LocalContext.current
     val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = com.rehanu04.resumematchv2.data.UserProfile())
 
-    val galacticCyan = Color(0xFF22D3EE)
-    val seaGreen = Color(0xFF00BFA5)
-    val accentColor = if (isDark) galacticCyan else seaGreen
+    val surfaceCyan = Color(0xFF22D3EE)
+    val vibrantGold = Color(0xFFFFD700)
+    val accentColor = if (isDark) surfaceCyan else vibrantGold
     val animatedAccent by animateColorAsState(targetValue = accentColor, animationSpec = tween(1000), label = "accent")
 
     // JSON Persistence[cite: 1]
@@ -268,7 +269,7 @@ fun MasterVaultScreen(
                         else VaultScrollContainer(maxHeight = 320, itemCount = vaultProjects.size, threshold = 2) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 vaultProjects.forEachIndexed { idx, proj ->
-                                    VaultAssetCard(title = proj.name, subtitle = "${proj.startMonth} ${proj.startYear} - ${proj.endMonth} ${proj.endYear}", bullets = proj.bullets, accent = animatedAccent, onEdit = { editingProjectIndex = idx; tempProject = proj }, onDelete = {
+                                    VaultAssetCard(title = proj.name, subtitle = "${proj.startMonth} ${proj.startYear} - ${if (proj.isPresent) "Present" else "${proj.endMonth} ${proj.endYear}"}", bullets = proj.bullets, accent = animatedAccent, onEdit = { editingProjectIndex = idx; tempProject = proj }, onDelete = {
                                         val newList = vaultProjects.toMutableList().apply { removeAt(idx) }
                                         scope.launch {
                                             userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(newList)))
@@ -397,8 +398,12 @@ fun MasterVaultScreen(
                     PremiumSelection(YEAR_OPTIONS, tempProject.startYear, animatedAccent, Modifier.weight(1f)) { tempProject = tempProject.copy(startYear = it) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PremiumSelection(MONTH_OPTIONS, tempProject.endMonth, animatedAccent, Modifier.weight(1f)) { tempProject = tempProject.copy(endMonth = it) }
-                    PremiumSelection(YEAR_OPTIONS, tempProject.endYear, animatedAccent, Modifier.weight(1f)) { tempProject = tempProject.copy(endYear = it) }
+                    PremiumSelection(MONTH_OPTIONS, tempProject.endMonth, animatedAccent, Modifier.weight(1f), enabled = !tempProject.isPresent) { tempProject = tempProject.copy(endMonth = it) }
+                    PremiumSelection(YEAR_OPTIONS, tempProject.endYear, animatedAccent, Modifier.weight(1f), enabled = !tempProject.isPresent) { tempProject = tempProject.copy(endYear = it) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = tempProject.isPresent, onCheckedChange = { tempProject = tempProject.copy(isPresent = it) })
+                    Text("Present", color = Color.White, maxLines = 1, softWrap = false)
                 }
                 PremiumTextField("Detailed Bullets", tempProject.bullets, animatedAccent, Modifier.height(140.dp)) { tempProject = tempProject.copy(bullets = it) }
             }
@@ -429,15 +434,13 @@ fun MasterVaultScreen(
                     PremiumSelection(MONTH_OPTIONS, tempExperience.startMonth, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(startMonth = it) }
                     PremiumSelection(YEAR_OPTIONS, tempExperience.startYear, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(startYear = it) }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PremiumSelection(MONTH_OPTIONS, tempExperience.endMonth, animatedAccent, Modifier.weight(1f), enabled = !tempExperience.isPresent) { tempExperience = tempExperience.copy(endMonth = it) }
+                    PremiumSelection(YEAR_OPTIONS, tempExperience.endYear, animatedAccent, Modifier.weight(1f), enabled = !tempExperience.isPresent) { tempExperience = tempExperience.copy(endYear = it) }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = tempExperience.isPresent, onCheckedChange = { tempExperience = tempExperience.copy(isPresent = it) })
-                    Text("I currently work here", color = Color.White)
-                }
-                if (!tempExperience.isPresent) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PremiumSelection(MONTH_OPTIONS, tempExperience.endMonth, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(endMonth = it) }
-                        PremiumSelection(YEAR_OPTIONS, tempExperience.endYear, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(endYear = it) }
-                    }
+                    Text("Present", color = Color.White, maxLines = 1, softWrap = false)
                 }
                 PremiumTextField("bullets", tempExperience.bullets, animatedAccent, Modifier.height(100.dp)) { tempExperience = tempExperience.copy(bullets = it) }
             }
@@ -585,11 +588,51 @@ fun PremiumTextField(label: String, value: String, accent: Color, modifier: Modi
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PremiumSelection(options: List<String>, value: String, accent: Color, modifier: Modifier = Modifier, onValueChange: (String) -> Unit) {
+fun PremiumSelection(
+    options: List<String>,
+    value: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onValueChange: (String) -> Unit
+) {
     var exp by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = exp, onExpandedChange = { exp = it }, modifier = modifier) {
-        OutlinedTextField(value, {}, readOnly = true, modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryNotEditable, enabled = true).fillMaxWidth(), shape = RoundedCornerShape(14.dp), trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(exp) }, colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = accent, cursorColor = accent))
-        ExposedDropdownMenu(exp, { exp = false }, modifier = Modifier.background(Color(0xFF1A1A1A))) { options.forEach { opt -> DropdownMenuItem(text = { Text(opt, color = Color.White) }, onClick = { onValueChange(opt); exp = false }) } }
+    val isEnabled = enabled
+    ExposedDropdownMenuBox(
+        expanded = if (isEnabled) exp else false,
+        onExpandedChange = { if (isEnabled) exp = it },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            enabled = isEnabled,
+            modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryNotEditable, enabled = isEnabled).fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            trailingIcon = { if (isEnabled) ExposedDropdownMenuDefaults.TrailingIcon(exp) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = accent,
+                unfocusedBorderColor = if (isEnabled) Color.White.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.05f),
+                disabledBorderColor = Color.White.copy(alpha = 0.05f),
+                disabledTextColor = Color.Gray,
+                cursorColor = accent
+            )
+        )
+        if (isEnabled) {
+            ExposedDropdownMenu(
+                expanded = exp,
+                onDismissRequest = { exp = false },
+                modifier = Modifier.background(Color(0xFF1A1A1A))
+            ) {
+                options.forEach { opt ->
+                    DropdownMenuItem(
+                        text = { Text(opt, color = Color.White) },
+                        onClick = { onValueChange(opt); exp = false }
+                    )
+                }
+            }
+        }
     }
 }
 

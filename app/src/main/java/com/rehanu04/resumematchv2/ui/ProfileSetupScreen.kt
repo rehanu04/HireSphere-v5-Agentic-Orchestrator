@@ -51,18 +51,18 @@ fun ProfileSetupScreen(
 
     val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = UserProfile())
 
-    var firstName by remember(userProfile) { mutableStateOf(userProfile.firstName) }
-    var lastName by remember(userProfile) { mutableStateOf(userProfile.lastName) }
-    var targetRole by remember(userProfile) { mutableStateOf(userProfile.targetRole) }
-    var location by remember(userProfile) { mutableStateOf(userProfile.location) }
-    var email by remember(userProfile) { mutableStateOf(userProfile.email) }
-    var phone by remember(userProfile) { mutableStateOf(userProfile.phone) }
-    var linkedin by remember(userProfile) { mutableStateOf(userProfile.linkedin) }
-    var github by remember(userProfile) { mutableStateOf(userProfile.github) }
-    var portfolio by remember(userProfile) { mutableStateOf(userProfile.portfolio) }
-    var summary by remember(userProfile) { mutableStateOf(userProfile.summary) }
-    var profileImageB64 by remember(userProfile) { mutableStateOf(userProfile.profileImageB64) }
-    var profileImageName by remember(userProfile) { mutableStateOf(userProfile.profileImageName) }
+    var firstName by remember(userProfile) { mutableStateOf(userProfile.firstName.sanitizeNull()) }
+    var lastName by remember(userProfile) { mutableStateOf(userProfile.lastName.sanitizeNull()) }
+    var targetRole by remember(userProfile) { mutableStateOf(userProfile.targetRole.sanitizeNull()) }
+    var location by remember(userProfile) { mutableStateOf(userProfile.location.sanitizeNull()) }
+    var email by remember(userProfile) { mutableStateOf(userProfile.email.sanitizeNull()) }
+    var phone by remember(userProfile) { mutableStateOf(userProfile.phone.sanitizeNull()) }
+    var linkedin by remember(userProfile) { mutableStateOf(userProfile.linkedin.sanitizeNull()) }
+    var github by remember(userProfile) { mutableStateOf(userProfile.github.sanitizeNull()) }
+    var portfolio by remember(userProfile) { mutableStateOf(userProfile.portfolio.sanitizeNull()) }
+    var summary by remember(userProfile) { mutableStateOf(userProfile.summary.sanitizeNull()) }
+    var profileImageB64 by remember(userProfile) { mutableStateOf(userProfile.profileImageB64.sanitizeNull()) }
+    var profileImageName by remember(userProfile) { mutableStateOf(userProfile.profileImageName.sanitizeNull()) }
 
     var roleFocused by remember { mutableStateOf(false) }
 
@@ -190,4 +190,8 @@ private suspend fun readImageAsBase64(ctx: Context, uri: Uri): Pair<String, Stri
         val name = ctx.contentResolver.query(uri, null, null, null, null)?.use { c -> val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if (c.moveToFirst() && i >= 0) c.getString(i) else "photo.jpg" } ?: "photo.jpg"
         Base64.encodeToString(os.toByteArray(), Base64.NO_WRAP) to name
     } catch (_: Exception) { null }
+}
+
+private fun String?.sanitizeNull(): String {
+    return if (this == null || this.trim() == "null") "" else this
 }

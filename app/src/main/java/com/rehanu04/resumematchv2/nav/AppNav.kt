@@ -42,7 +42,8 @@ fun AppNav(
                 onNavigateToCreate = { navController.navigate(Routes.CREATE) },
                 onNavigateToVault = { navController.navigate(Routes.MASTER_VAULT) },
                 onNavigateToInterviewHub = { navController.navigate(Routes.INTERVIEW_HUB) },
-                onNavigateToGauntlet = { navController.navigate("gauntlet_screen/TECH") }
+                onNavigateToGauntlet = { navController.navigate("gauntlet_screen/TECH") },
+                onNavigateToProfile = { navController.navigate(Routes.PROFILE) }
             )
         }
 
