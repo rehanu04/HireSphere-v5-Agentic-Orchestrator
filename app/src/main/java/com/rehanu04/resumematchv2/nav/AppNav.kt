@@ -91,6 +91,9 @@ fun AppNav(
         composable("technical_round") {
             // FIXED: Using correct function name from your project[cite: 11, 18]
             TechnicalTurnaroundScreen(
+                isDark = darkMode,
+                onToggleTheme = onToggleDark,
+                userProfileStore = userProfileStore,
                 onBack = {
                     activityViewModel.addLog(LogEntry("MAY 05", "Technical Gauntlet", "INTERRUPTED", -2, "Exited simulation."))
                     navController.popBackStack()

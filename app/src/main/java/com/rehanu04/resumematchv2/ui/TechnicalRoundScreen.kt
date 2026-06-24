@@ -21,6 +21,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.collectAsState
+
+import com.rehanu04.resumematchv2.data.UserProfileStore
+import kotlinx.coroutines.launch
 
 /**
  * HireSphere v5 - Technical Gauntlet [2026 Standard]
@@ -28,11 +32,14 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun TechnicalTurnaroundScreen(
+    isDark: Boolean,
+    onToggleTheme: (Boolean) -> Unit,
+    userProfileStore: UserProfileStore,
     onBack: () -> Unit,
     onComplete: (Float, Int) -> Unit
 ) {
-    val bgColor = Color(0xFF0C0C0C)
-    val accentCyan = Color(0xFF22D3EE)
+    val bgColor = Color.Transparent
+    val accentCyan by androidx.compose.animation.animateColorAsState(targetValue = if (isDark) Color(0xFF22D3EE) else Color(0xFFFFD700), animationSpec = androidx.compose.animation.core.tween(800), label = "accent")
 
     // --- State Management: Persistence & Navigation ---
     var isStarted by remember { mutableStateOf(false) }
@@ -42,10 +49,14 @@ fun TechnicalTurnaroundScreen(
 
     var jobDescription by remember { mutableStateOf("") }
     var selectedDifficulty by remember { mutableStateOf("Medium") }
+    var assessmentFocusMode by remember { mutableStateOf("Core & Algorithms") }
     var currentGateIndex by remember { mutableStateOf(0) }
     var timeRemainingSeconds by remember { mutableStateOf(600) }
     var reasoningTrace by remember { mutableStateOf("") }
     var showExitDialog by remember { mutableStateOf(false) }
+    
+    val scope = rememberCoroutineScope()
+    val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = com.rehanu04.resumematchv2.data.UserProfile())
 
     // Multi-gate state persistence: Stores code for all 5 technical gates separately
     val gateCodes = remember { mutableStateMapOf<Int, String>() }
@@ -102,12 +113,14 @@ fun TechnicalTurnaroundScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = bgColor, titleContentColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = bgColor, titleContentColor = if (isDark) Color.White else Color.Black)
             )
         },
         containerColor = bgColor
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            KineticBackground(accentColor = accentCyan, isDark = isDark)
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             when {
                 // PHASE 1: PREP & CALIBRATION
                 !isStarted -> PrepPhaseContent(
@@ -115,8 +128,19 @@ fun TechnicalTurnaroundScreen(
                     onJdChange = { jobDescription = it },
                     difficulty = selectedDifficulty,
                     onDifficultyChange = { selectedDifficulty = it },
-                    onStart = { isStarted = true },
-                    accentColor = accentCyan
+                    focusMode = assessmentFocusMode,
+                    onFocusModeChange = { assessmentFocusMode = it },
+                    onStart = {
+                        isStarted = true
+                        if (assessmentFocusMode == "Project Architecture") {
+                            // Inject user profile details into the evaluation context
+                            val contextInjection = "USER PROJECTS:\n${userProfile.savedProjectsJson}\n\nSUMMARY:\n${userProfile.summary}"
+                            // Placeholder for backend injection
+                            reasoningTrace = "Intercepting local Master Vault: Project Architecture Focus Activated...\n"
+                        }
+                    },
+                    accentColor = accentCyan,
+                    isDark = isDark
                 )
                 // PHASE 2: EVALUATION OVERLAY (Kills Latency)
                 isEvaluating -> StreamingReasoningOverlay(
@@ -133,7 +157,13 @@ fun TechnicalTurnaroundScreen(
                             gatesCompleted = if (timeRemainingSeconds <= 0) currentGateIndex else 5,
                             difficulty = selectedDifficulty,
                             onViewSolutions = { showSolutions = true },
-                            onExit = { onComplete(0.85f, 5); onBack() },
+                            onExit = { 
+                                // Blank Form Submission Validation Hardening
+                                val hasEmptyGate = (0 until 5).any { gateCodes[it]?.trim().isNullOrEmpty() }
+                                val finalScore = if (hasEmptyGate) 0.0f else 0.85f
+                                onComplete(finalScore, 5)
+                                onBack() 
+                            },
                             accentColor = accentCyan
                         )
                     }
@@ -146,6 +176,7 @@ fun TechnicalTurnaroundScreen(
                     onEvaluate = { isEvaluating = true },
                     accentColor = accentCyan
                 )
+            }
             }
         }
     }
@@ -160,18 +191,25 @@ fun PrepPhaseContent(
     onJdChange: (String) -> Unit,
     difficulty: String,
     onDifficultyChange: (String) -> Unit,
+    focusMode: String,
+    onFocusModeChange: (String) -> Unit,
     onStart: () -> Unit,
-    accentColor: Color
+    accentColor: Color,
+    isDark: Boolean
 ) {
+    val textColor = if (isDark) Color.White else Color.Black
+    val subTextColor = if (isDark) Color.Gray else Color.DarkGray
+    val inputBgColor = if (isDark) Color.Transparent else Color(0xFF1E1E1E).copy(alpha = 0.05f)
+
     Column(modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
         Icon(imageVector = Icons.Default.Description, contentDescription = null, tint = accentColor, modifier = Modifier.size(48.dp))
         Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "Assessment Setup", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        Text(text = "Configure the 2026 Gauntlet difficulty.", color = Color.Gray)
+        Text(text = "Assessment Setup", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = textColor)
+        Text(text = "Configure the 2026 Gauntlet difficulty.", color = subTextColor)
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        Text(text = "Difficulty Level", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text(text = "Difficulty Level", color = textColor, fontWeight = FontWeight.SemiBold)
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Easy", "Medium", "Hard", "AI-Auto").forEach { level ->
                 FilterChip(
@@ -181,7 +219,24 @@ fun PrepPhaseContent(
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = accentColor,
                         selectedLabelColor = Color.Black,
-                        labelColor = Color.Gray
+                        labelColor = subTextColor
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(text = "Assessment Focus Mode", color = textColor, fontWeight = FontWeight.SemiBold)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Core & Algorithms", "Project Architecture").forEach { mode ->
+                FilterChip(
+                    selected = (focusMode == mode),
+                    onClick = { onFocusModeChange(mode) },
+                    label = { Text(text = mode) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = accentColor,
+                        selectedLabelColor = Color.Black,
+                        labelColor = subTextColor
                     )
                 )
             }
@@ -189,17 +244,19 @@ fun PrepPhaseContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text(text = "Job Description (Context)", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text(text = "Job Description (Context)", color = textColor, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(
             value = jd,
             onValueChange = onJdChange,
             modifier = Modifier.fillMaxWidth().height(180.dp).padding(top = 8.dp),
-            placeholder = { Text(text = "Paste JD to calibrate gates...", color = Color.DarkGray) },
+            placeholder = { Text(text = "Paste JD to calibrate gates...", color = subTextColor) },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = accentColor,
-                unfocusedBorderColor = Color.DarkGray,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
+                unfocusedBorderColor = subTextColor,
+                focusedTextColor = textColor,
+                unfocusedTextColor = textColor,
+                focusedContainerColor = inputBgColor,
+                unfocusedContainerColor = inputBgColor
             )
         )
 
@@ -209,9 +266,9 @@ fun PrepPhaseContent(
             onClick = onStart,
             enabled = jd.length > 10,
             modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE2E8F0), disabledContainerColor = Color(0xFFE2E8F0).copy(alpha = 0.5f))
         ) {
-            Text(text = "BEGIN TECHNICAL ROUND", color = Color.Black, fontWeight = FontWeight.ExtraBold)
+            Text(text = "BEGIN TECHNICAL ROUND", color = Color(0xFF0F172A), fontWeight = FontWeight.ExtraBold)
         }
     }
 }
