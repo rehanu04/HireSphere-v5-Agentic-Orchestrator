@@ -134,9 +134,17 @@ fun TechnicalTurnaroundScreen(
                         isStarted = true
                         if (assessmentFocusMode == "Project Architecture") {
                             // Inject user profile details into the evaluation context
-                            val contextInjection = "USER PROJECTS:\n${userProfile.savedProjectsJson}\n\nSUMMARY:\n${userProfile.summary}"
-                            // Placeholder for backend injection
-                            reasoningTrace = "Intercepting local Master Vault: Project Architecture Focus Activated...\n"
+                            val contextInjection = """
+                                [SYSTEM OVERRIDE] DISCARD PREDEFINED SYSTEMIC TEMPLATES.
+                                Dynamically synthesize interview challenges derived ENTIRELY from the user's exact listed works.
+                                Specifically target their personal implementation of localized vector databases, multi-agent sandbox boundaries, and low-latency client-server synchronization layers.
+                                
+                                EXTRACTED CONTEXT:
+                                USER PROJECTS: ${userProfile.savedProjectsJson}
+                                USER EXPERIENCE: ${userProfile.savedExperienceJson}
+                            """.trimIndent()
+                            
+                            reasoningTrace = "Intercepting local Master Vault: Project Architecture Focus Activated...\nInjecting custom prompt context...\n$contextInjection\n"
                         }
                     },
                     accentColor = accentCyan,
@@ -153,16 +161,16 @@ fun TechnicalTurnaroundScreen(
                     if (showSolutions) {
                         SolutionsReviewPhase(onBack = { showSolutions = false }, accentColor = accentCyan)
                     } else {
+                        // Blank Form Submission Validation Hardening
+                        val hasEmptyGate = (0 until 5).any { gateCodes[it]?.trim().isNullOrEmpty() }
                         ResultPhaseContent(
                             gatesCompleted = if (timeRemainingSeconds <= 0) currentGateIndex else 5,
                             difficulty = selectedDifficulty,
+                            hasEmptyGate = hasEmptyGate,
                             onViewSolutions = { showSolutions = true },
                             onExit = { 
-                                // Blank Form Submission Validation Hardening
-                                val hasEmptyGate = (0 until 5).any { gateCodes[it]?.trim().isNullOrEmpty() }
                                 val finalScore = if (hasEmptyGate) 0.0f else 0.85f
                                 onComplete(finalScore, 5)
-                                onBack() 
                             },
                             accentColor = accentCyan
                         )
@@ -370,7 +378,7 @@ fun StreamingReasoningOverlay(trace: String, onFinished: () -> Unit, accentColor
 // COMPONENT: RESULTS PHASE (SCORECARD)
 // ==========================================
 @Composable
-fun ResultPhaseContent(gatesCompleted: Int, difficulty: String, onViewSolutions: () -> Unit, onExit: () -> Unit, accentColor: Color) {
+fun ResultPhaseContent(gatesCompleted: Int, difficulty: String, hasEmptyGate: Boolean, onViewSolutions: () -> Unit, onExit: () -> Unit, accentColor: Color) {
     val surfaceColor = Color(0xFF18181B)
     Column(modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = Color.Green, modifier = Modifier.size(64.dp))
@@ -383,11 +391,11 @@ fun ResultPhaseContent(gatesCompleted: Int, difficulty: String, onViewSolutions:
         // Metrics calibrated to 2026 Responsible Tech standards
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = surfaceColor)) {
             Column(modifier = Modifier.padding(20.dp)) {
-                ResultMetricRow(label = "Execution Correctness", score = 0.85f, color = Color.Cyan) // 40% Weight
+                ResultMetricRow(label = "Execution Correctness", score = if (hasEmptyGate) 0.0f else 0.85f, color = Color.Cyan) // 40% Weight
                 Spacer(modifier = Modifier.height(16.dp))
-                ResultMetricRow(label = "Sustainability Index", score = 0.72f, color = Color.Green) // 35% Weight
+                ResultMetricRow(label = "Sustainability Index", score = if (hasEmptyGate) 0.0f else 0.72f, color = Color.Green) // 35% Weight
                 Spacer(modifier = Modifier.height(16.dp))
-                ResultMetricRow(label = "Agent Stability", score = 0.65f, color = Color.Magenta)    // 25% Weight
+                ResultMetricRow(label = "Agent Stability", score = if (hasEmptyGate) 0.0f else 0.65f, color = Color.Magenta)    // 25% Weight
             }
         }
 
