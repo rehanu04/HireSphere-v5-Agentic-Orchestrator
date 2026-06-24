@@ -160,9 +160,11 @@ fun AppNav(
 
         composable(Routes.PROFILE) {
             ProfileSetupScreen(
+                userProfileStore = userProfileStore,
+                isDark = darkMode,
+                onToggleTheme = onToggleDark,
                 onBack = { navController.popBackStack() },
-                onGoMasterVault = { navController.navigate(Routes.MASTER_VAULT) },
-                userProfileStore = userProfileStore
+                onGoMasterVault = { navController.navigate(Routes.MASTER_VAULT) }
             )
         }
 

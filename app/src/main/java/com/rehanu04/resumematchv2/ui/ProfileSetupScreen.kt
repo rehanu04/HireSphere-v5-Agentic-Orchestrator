@@ -39,10 +39,14 @@ private val ROLE_SUGGESTIONS = listOf(
     "Machine Learning Engineer", "Android Engineer (Kotlin)", "Full Stack Engineer"
 )
 
+private val LOCATION_SUGGESTIONS = listOf("Bangalore, Karnataka, India", "Bengaluru", "Bombay", "Boston", "Berlin")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileSetupScreen(
     userProfileStore: UserProfileStore,
+    isDark: Boolean,
+    onToggleTheme: (Boolean) -> Unit,
     onBack: () -> Unit,
     onGoMasterVault: () -> Unit
 ) {
@@ -51,8 +55,8 @@ fun ProfileSetupScreen(
 
     val userProfile by userProfileStore.userProfileFlow.collectAsState(initial = UserProfile())
 
-    var firstName by remember(userProfile) { mutableStateOf(userProfile.firstName.sanitizeNull()) }
-    var lastName by remember(userProfile) { mutableStateOf(userProfile.lastName.sanitizeNull()) }
+    var firstName by remember(userProfile) { mutableStateOf(userProfile.firstName.sanitizeNull().ifBlank { "Mohammed" }) }
+    var lastName by remember(userProfile) { mutableStateOf(userProfile.lastName.sanitizeNull().ifBlank { "Rehan" }) }
     var targetRole by remember(userProfile) { mutableStateOf(userProfile.targetRole.sanitizeNull()) }
     var location by remember(userProfile) { mutableStateOf(userProfile.location.sanitizeNull()) }
     var email by remember(userProfile) { mutableStateOf(userProfile.email.sanitizeNull()) }
@@ -78,33 +82,42 @@ fun ProfileSetupScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("My AI Profile") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    scope.launch {
-                        userProfileStore.saveUserProfile(
-                            userProfile.copy(
-                                firstName = firstName, lastName = lastName, targetRole = targetRole,
-                                location = location, email = email, phone = phone,
-                                linkedin = linkedin, github = github, portfolio = portfolio,
-                                summary = summary, profileImageB64 = profileImageB64, profileImageName = profileImageName
+    val animatedAccentColor by androidx.compose.animation.animateColorAsState(targetValue = if (isDark) androidx.compose.ui.graphics.Color(0xFF22D3EE) else androidx.compose.ui.graphics.Color(0xFFFFD700), animationSpec = androidx.compose.animation.core.tween(800), label = "accent")
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        KineticBackground(accentColor = animatedAccentColor, isDark = isDark)
+        
+        Scaffold(
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text("My AI Profile") },
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
+                )
+            },
+            floatingActionButton = {
+                FloatingActionButton(
+                    onClick = {
+                        scope.launch {
+                            userProfileStore.saveUserProfile(
+                                userProfile.copy(
+                                    firstName = firstName, lastName = lastName, targetRole = targetRole,
+                                    location = location, email = email, phone = phone,
+                                    linkedin = linkedin, github = github, portfolio = portfolio,
+                                    summary = summary.replace("null, null, null", "").replace("null", "").trim(), profileImageB64 = profileImageB64, profileImageName = profileImageName
+                                )
                             )
-                        )
-                        Toast.makeText(context, "Profile Saved for AI!", Toast.LENGTH_SHORT).show()
-                        onBack()
-                    }
-                },
-                containerColor = MaterialTheme.colorScheme.primary
-            ) { Icon(Icons.Filled.Save, contentDescription = "Save", tint = MaterialTheme.colorScheme.onPrimary) }
-        }
-    ) { paddingValues ->
+                            Toast.makeText(context, "Profile Saved for AI!", Toast.LENGTH_SHORT).show()
+                            onBack()
+                        }
+                    },
+                    containerColor = animatedAccentColor,
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    modifier = Modifier.size(64.dp)
+                ) { Icon(Icons.Filled.Save, contentDescription = "Save", tint = if (isDark) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White) }
+            }
+        ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -152,7 +165,35 @@ fun ProfileSetupScreen(
                 }
             }
 
-            OutlinedTextField(value = location, onValueChange = { location = it }, label = { Text("Location") }, modifier = Modifier.fillMaxWidth())
+            var locExp by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(
+                expanded = locExp,
+                onExpandedChange = { locExp = it },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = location,
+                    onValueChange = { location = it; locExp = true },
+                    label = { Text("Location") },
+                    modifier = Modifier.menuAnchor(type = MenuAnchorType.PrimaryEditable, enabled = true).fillMaxWidth()
+                )
+                if (location.isNotEmpty()) {
+                    val filteredLocs = LOCATION_SUGGESTIONS.filter { it.contains(location, true) }
+                    if (filteredLocs.isNotEmpty()) {
+                        ExposedDropdownMenu(
+                            expanded = locExp,
+                            onDismissRequest = { locExp = false }
+                        ) {
+                            filteredLocs.forEach { loc ->
+                                DropdownMenuItem(
+                                    text = { Text(loc) },
+                                    onClick = { location = loc; locExp = false }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             OutlinedTextField(value = summary, onValueChange = { summary = it }, label = { Text("About Me (Summary)") }, minLines = 4, modifier = Modifier.fillMaxWidth())
 
             HorizontalDivider()
@@ -176,6 +217,7 @@ fun ProfileSetupScreen(
             }
 
             Spacer(modifier = Modifier.height(80.dp))
+        }
         }
     }
 }

@@ -158,6 +158,11 @@ fun AiAssistantScreen(
                         val aiLastName = parsedObj.optString("last_name", "").trim()
                         val aiRole = parsedObj.optString("target_role", "").trim()
                         val aiSummary = parsedObj.optString("summary", "").trim()
+                        val aiEmail = parsedObj.optString("email", "").trim()
+                        val aiPhone = parsedObj.optString("phone", "").trim()
+                        val aiLinkedin = parsedObj.optString("linkedin", "").trim()
+                        val aiGithub = parsedObj.optString("github", "").trim()
+                        val aiPortfolio = parsedObj.optString("portfolio", "").trim()
 
                         val newFirstName = if (aiFirstName.isNotBlank()) aiFirstName else userProfile.firstName
                         val newLastName = if (aiLastName.isNotBlank()) aiLastName else userProfile.lastName
@@ -165,6 +170,12 @@ fun AiAssistantScreen(
                         val newSummary = if (aiSummary.isNotBlank()) {
                             if (userProfile.summary.isBlank()) aiSummary else "${userProfile.summary}\n$aiSummary"
                         } else userProfile.summary
+
+                        val newEmail = if (aiEmail.isNotBlank()) aiEmail else userProfile.email
+                        val newPhone = if (aiPhone.isNotBlank()) aiPhone else userProfile.phone
+                        val newLinkedin = if (aiLinkedin.isNotBlank()) aiLinkedin else userProfile.linkedin
+                        val newGithub = if (aiGithub.isNotBlank()) aiGithub else userProfile.github
+                        val newPortfolio = if (aiPortfolio.isNotBlank()) aiPortfolio else userProfile.portfolio
 
                         val newProjectsJson = parsedObj.optJSONArray("projects")?.toString() ?: "[]"
                         val newExperienceJson = parsedObj.optJSONArray("experience")?.toString() ?: "[]"
@@ -233,6 +244,11 @@ fun AiAssistantScreen(
                                 lastName = newLastName,
                                 targetRole = newTargetRole,
                                 summary = newSummary,
+                                email = newEmail,
+                                phone = newPhone,
+                                linkedin = newLinkedin,
+                                github = newGithub,
+                                portfolio = newPortfolio,
                                 savedProjectsJson = gson.toJson(mergedProjects),
                                 savedExperienceJson = gson.toJson(mergedExp),
                                 savedSkillsJson = gson.toJson(mergedSkills),
