@@ -193,5 +193,7 @@ private suspend fun readImageAsBase64(ctx: Context, uri: Uri): Pair<String, Stri
 }
 
 private fun String?.sanitizeNull(): String {
-    return if (this == null || this.trim() == "null") "" else this
+    if (this == null) return ""
+    val t = this.trim()
+    return if (t == "null" || t == "null, null, null" || t.isEmpty()) "" else this
 }

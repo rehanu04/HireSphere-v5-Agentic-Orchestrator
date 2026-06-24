@@ -64,6 +64,67 @@ data class VaultAchievement(val title: String = "", val issuer: String = "", val
 private val MONTH_OPTIONS = listOf("Not set", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
 private val YEAR_OPTIONS = listOf("Not set") + (Calendar.getInstance().get(Calendar.YEAR) + 2 downTo 1980).map { it.toString() }
 
+private fun formatDates(sm: String, sy: String, em: String, ey: String, isP: Boolean): String {
+    val start = listOf(sm, sy).filter { it != "Not set" }.joinToString(" ").trim()
+    val end = if (isP) "Present" else listOf(em, ey).filter { it != "Not set" }.joinToString(" ").trim()
+    if (start.isEmpty() && end.isEmpty()) return ""
+    if (start.isEmpty()) return end
+    if (end.isEmpty()) return start
+    return "$start - $end"
+}
+
+private fun getValidStartYears(isPresent: Boolean): List<String> = if (isPresent) YEAR_OPTIONS.filter { it == "Not set" || it.toInt() <= 2026 } else YEAR_OPTIONS
+
+private fun getValidStartMonths(startYear: String, isPresent: Boolean): List<String> {
+    if (isPresent && startYear == "2026") return MONTH_OPTIONS.subList(0, 7)
+    return MONTH_OPTIONS
+}
+
+private fun getValidEndYears(startYear: String): List<String> {
+    if (startYear == "Not set") return YEAR_OPTIONS
+    return YEAR_OPTIONS.filter { it == "Not set" || it.toInt() >= startYear.toInt() }
+}
+
+private fun getValidEndMonths(startYear: String, startMonth: String, endYear: String): List<String> {
+    if (startYear != "Not set" && startMonth != "Not set" && startYear == endYear) {
+        val startIndex = MONTH_OPTIONS.indexOf(startMonth)
+        if (startIndex != -1) return listOf("Not set") + MONTH_OPTIONS.subList(startIndex, MONTH_OPTIONS.size)
+    }
+    return MONTH_OPTIONS
+}
+
+private fun validateProjectDates(p: VaultProject): VaultProject {
+    var valid = p
+    if (p.isPresent) {
+        if (p.startYear != "Not set" && p.startYear.toInt() > 2026) valid = valid.copy(startYear = "Not set", startMonth = "Not set")
+        else if (p.startYear == "2026" && p.startMonth != "Not set" && MONTH_OPTIONS.indexOf(p.startMonth) > 6) valid = valid.copy(startMonth = "Not set")
+    } else {
+        if (p.startYear != "Not set" && p.endYear != "Not set") {
+            if (p.startYear.toInt() > p.endYear.toInt()) valid = valid.copy(endYear = "Not set", endMonth = "Not set")
+            else if (p.startYear == p.endYear && p.startMonth != "Not set" && p.endMonth != "Not set") {
+                if (MONTH_OPTIONS.indexOf(p.startMonth) > MONTH_OPTIONS.indexOf(p.endMonth)) valid = valid.copy(endMonth = "Not set")
+            }
+        }
+    }
+    return valid
+}
+
+private fun validateExperienceDates(e: VaultExperience): VaultExperience {
+    var valid = e
+    if (e.isPresent) {
+        if (e.startYear != "Not set" && e.startYear.toInt() > 2026) valid = valid.copy(startYear = "Not set", startMonth = "Not set")
+        else if (e.startYear == "2026" && e.startMonth != "Not set" && MONTH_OPTIONS.indexOf(e.startMonth) > 6) valid = valid.copy(startMonth = "Not set")
+    } else {
+        if (e.startYear != "Not set" && e.endYear != "Not set") {
+            if (e.startYear.toInt() > e.endYear.toInt()) valid = valid.copy(endYear = "Not set", endMonth = "Not set")
+            else if (e.startYear == e.endYear && e.startMonth != "Not set" && e.endMonth != "Not set") {
+                if (MONTH_OPTIONS.indexOf(e.startMonth) > MONTH_OPTIONS.indexOf(e.endMonth)) valid = valid.copy(endMonth = "Not set")
+            }
+        }
+    }
+    return valid
+}
+
 // ==========================================
 // COMPONENT: TOP-DOWN GLOSSY GRADIENT
 // FIXED: Colorful at top, Dark at bottom. NO spinning[cite: 3].
@@ -269,7 +330,7 @@ fun MasterVaultScreen(
                         else VaultScrollContainer(maxHeight = 320, itemCount = vaultProjects.size, threshold = 2) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 vaultProjects.forEachIndexed { idx, proj ->
-                                    VaultAssetCard(title = proj.name, subtitle = "${proj.startMonth} ${proj.startYear} - ${if (proj.isPresent) "Present" else "${proj.endMonth} ${proj.endYear}"}", bullets = proj.bullets, accent = animatedAccent, onEdit = { editingProjectIndex = idx; tempProject = proj }, onDelete = {
+                                    VaultAssetCard(title = proj.name, subtitle = formatDates(proj.startMonth, proj.startYear, proj.endMonth, proj.endYear, proj.isPresent), bullets = proj.bullets, accent = animatedAccent, onEdit = { editingProjectIndex = idx; tempProject = proj }, onDelete = {
                                         val newList = vaultProjects.toMutableList().apply { removeAt(idx) }
                                         scope.launch {
                                             userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(newList)))
@@ -292,7 +353,7 @@ fun MasterVaultScreen(
                         else VaultScrollContainer(maxHeight = 320, itemCount = vaultExperience.size, threshold = 2) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 vaultExperience.forEachIndexed { idx, exp ->
-                                    VaultAssetCard(title = exp.company, subtitle = "${exp.role} | ${exp.startMonth} ${exp.startYear} - ${if (exp.isPresent) "Present" else "${exp.endMonth} ${exp.endYear}"}", bullets = exp.bullets, accent = animatedAccent, onEdit = { editingExpIndex = idx; tempExperience = exp }, onDelete = {
+                                    VaultAssetCard(title = exp.company, subtitle = "${exp.role}" + (if (exp.role.isNotBlank() && formatDates(exp.startMonth, exp.startYear, exp.endMonth, exp.endYear, exp.isPresent).isNotBlank()) " | " else "") + formatDates(exp.startMonth, exp.startYear, exp.endMonth, exp.endYear, exp.isPresent), bullets = exp.bullets, accent = animatedAccent, onEdit = { editingExpIndex = idx; tempExperience = exp }, onDelete = {
                                         val newList = vaultExperience.toMutableList().apply { removeAt(idx) }
                                         scope.launch {
                                             userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(newList)))
@@ -389,20 +450,20 @@ fun MasterVaultScreen(
     if (editingProjectIndex != -1) {
         PremiumVaultDialog(title = "Project Detail", accentColor = animatedAccent, onDismiss = { editingProjectIndex = -1 }, onConfirm = {
             if (tempProject.name.isBlank()) Toast.makeText(context, "Project Name required.", Toast.LENGTH_SHORT).show()
-            else { val newList = if (editingProjectIndex == -2) vaultProjects + tempProject else vaultProjects.toMutableList().apply { this[editingProjectIndex] = tempProject }; scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(newList))); editingProjectIndex = -1 } }
+            else { val finalProj = validateProjectDates(tempProject); val newList = if (editingProjectIndex == -2) vaultProjects + finalProj else vaultProjects.toMutableList().apply { this[editingProjectIndex] = finalProj }; scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedProjectsJson = gson.toJson(newList))); editingProjectIndex = -1 } }
         }) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 PremiumTextField("Project Name *", tempProject.name, animatedAccent) { tempProject = tempProject.copy(name = it) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PremiumSelection(MONTH_OPTIONS, tempProject.startMonth, animatedAccent, Modifier.weight(1f)) { tempProject = tempProject.copy(startMonth = it) }
-                    PremiumSelection(YEAR_OPTIONS, tempProject.startYear, animatedAccent, Modifier.weight(1f)) { tempProject = tempProject.copy(startYear = it) }
+                    PremiumSelection(getValidStartMonths(tempProject.startYear, tempProject.isPresent), tempProject.startMonth, animatedAccent, Modifier.weight(1f)) { tempProject = validateProjectDates(tempProject.copy(startMonth = it)) }
+                    PremiumSelection(getValidStartYears(tempProject.isPresent), tempProject.startYear, animatedAccent, Modifier.weight(1f)) { tempProject = validateProjectDates(tempProject.copy(startYear = it)) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PremiumSelection(MONTH_OPTIONS, tempProject.endMonth, animatedAccent, Modifier.weight(1f), enabled = !tempProject.isPresent) { tempProject = tempProject.copy(endMonth = it) }
-                    PremiumSelection(YEAR_OPTIONS, tempProject.endYear, animatedAccent, Modifier.weight(1f), enabled = !tempProject.isPresent) { tempProject = tempProject.copy(endYear = it) }
+                    PremiumSelection(getValidEndMonths(tempProject.startYear, tempProject.startMonth, tempProject.endYear), tempProject.endMonth, animatedAccent, Modifier.weight(1f), enabled = !tempProject.isPresent) { tempProject = validateProjectDates(tempProject.copy(endMonth = it)) }
+                    PremiumSelection(getValidEndYears(tempProject.startYear), tempProject.endYear, animatedAccent, Modifier.weight(1f), enabled = !tempProject.isPresent) { tempProject = validateProjectDates(tempProject.copy(endYear = it)) }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = tempProject.isPresent, onCheckedChange = { tempProject = tempProject.copy(isPresent = it) })
+                    Checkbox(checked = tempProject.isPresent, onCheckedChange = { tempProject = validateProjectDates(tempProject.copy(isPresent = it)) })
                     Text("Present", color = Color.White, maxLines = 1, softWrap = false)
                 }
                 PremiumTextField("Detailed Bullets", tempProject.bullets, animatedAccent, Modifier.height(140.dp)) { tempProject = tempProject.copy(bullets = it) }
@@ -425,24 +486,24 @@ fun MasterVaultScreen(
     if (editingExpIndex != -1) {
         PremiumVaultDialog(title = "Work Experience", animatedAccent, { editingExpIndex = -1 }, {
             if (tempExperience.company.isBlank()) Toast.makeText(context, "Organization required.", Toast.LENGTH_SHORT).show()
-            else { val newList = if (editingExpIndex == -2) vaultExperience + tempExperience else vaultExperience.toMutableList().apply { this[editingExpIndex] = tempExperience }; scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(newList))); editingExpIndex = -1 } }
+            else { val finalExp = validateExperienceDates(tempExperience); val newList = if (editingExpIndex == -2) vaultExperience + finalExp else vaultExperience.toMutableList().apply { this[editingExpIndex] = finalExp }; scope.launch { userProfileStore.saveUserProfile(userProfile.copy(savedExperienceJson = gson.toJson(newList))); editingExpIndex = -1 } }
         }) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 PremiumTextField("Organization *", tempExperience.company, animatedAccent) { tempExperience = tempExperience.copy(company = it) }
                 PremiumTextField("Role", tempExperience.role, animatedAccent) { tempExperience = tempExperience.copy(role = it) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PremiumSelection(MONTH_OPTIONS, tempExperience.startMonth, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(startMonth = it) }
-                    PremiumSelection(YEAR_OPTIONS, tempExperience.startYear, animatedAccent, Modifier.weight(1f)) { tempExperience = tempExperience.copy(startYear = it) }
+                    PremiumSelection(getValidStartMonths(tempExperience.startYear, tempExperience.isPresent), tempExperience.startMonth, animatedAccent, Modifier.weight(1f)) { tempExperience = validateExperienceDates(tempExperience.copy(startMonth = it)) }
+                    PremiumSelection(getValidStartYears(tempExperience.isPresent), tempExperience.startYear, animatedAccent, Modifier.weight(1f)) { tempExperience = validateExperienceDates(tempExperience.copy(startYear = it)) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PremiumSelection(MONTH_OPTIONS, tempExperience.endMonth, animatedAccent, Modifier.weight(1f), enabled = !tempExperience.isPresent) { tempExperience = tempExperience.copy(endMonth = it) }
-                    PremiumSelection(YEAR_OPTIONS, tempExperience.endYear, animatedAccent, Modifier.weight(1f), enabled = !tempExperience.isPresent) { tempExperience = tempExperience.copy(endYear = it) }
+                    PremiumSelection(getValidEndMonths(tempExperience.startYear, tempExperience.startMonth, tempExperience.endYear), tempExperience.endMonth, animatedAccent, Modifier.weight(1f), enabled = !tempExperience.isPresent) { tempExperience = validateExperienceDates(tempExperience.copy(endMonth = it)) }
+                    PremiumSelection(getValidEndYears(tempExperience.startYear), tempExperience.endYear, animatedAccent, Modifier.weight(1f), enabled = !tempExperience.isPresent) { tempExperience = validateExperienceDates(tempExperience.copy(endYear = it)) }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = tempExperience.isPresent, onCheckedChange = { tempExperience = tempExperience.copy(isPresent = it) })
+                    Checkbox(checked = tempExperience.isPresent, onCheckedChange = { tempExperience = validateExperienceDates(tempExperience.copy(isPresent = it)) })
                     Text("Present", color = Color.White, maxLines = 1, softWrap = false)
                 }
-                PremiumTextField("bullets", tempExperience.bullets, animatedAccent, Modifier.height(100.dp)) { tempExperience = tempExperience.copy(bullets = it) }
+                PremiumTextField("Detailed Bullets", tempExperience.bullets, animatedAccent, Modifier.height(140.dp)) { tempExperience = tempExperience.copy(bullets = it) }
             }
         }
     }
@@ -598,13 +659,20 @@ fun PremiumSelection(
 ) {
     var exp by remember { mutableStateOf(false) }
     val isEnabled = enabled
+    
+    val displayValue = if (value != "Not set" && value != "Year" && value.length > 3 && MONTH_OPTIONS.contains(value)) {
+        value.take(3).uppercase()
+    } else {
+        value
+    }
+
     ExposedDropdownMenuBox(
         expanded = if (isEnabled) exp else false,
         onExpandedChange = { if (isEnabled) exp = it },
         modifier = modifier
     ) {
         OutlinedTextField(
-            value = value,
+            value = displayValue,
             onValueChange = {},
             readOnly = true,
             enabled = isEnabled,
