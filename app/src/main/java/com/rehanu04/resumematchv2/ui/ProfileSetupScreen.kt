@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -205,15 +206,23 @@ fun ProfileSetupScreen(
             OutlinedTextField(value = portfolio, onValueChange = { portfolio = it }, label = { Text("Portfolio URL") }, modifier = Modifier.fillMaxWidth())
 
             Spacer(modifier = Modifier.height(24.dp))
+            val btnGradient = if (isDark) {
+                androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(androidx.compose.ui.graphics.Color(0xFF1E293B), androidx.compose.ui.graphics.Color(0xFF22D3EE).copy(alpha = 0.15f)))
+            } else {
+                androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(androidx.compose.ui.graphics.Color(0xFF2C2514), androidx.compose.ui.graphics.Color(0xFFFFD700).copy(alpha = 0.15f)))
+            }
+
             Button(
                 onClick = onGoMasterVault,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                modifier = Modifier.fillMaxWidth().height(56.dp).background(btnGradient, RoundedCornerShape(24.dp)),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, animatedAccentColor.copy(alpha = 0.4f)),
+                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
             ) {
-                Icon(Icons.Filled.Storage, contentDescription = "Vault")
+                Icon(Icons.Filled.Storage, contentDescription = "Vault", tint = animatedAccentColor)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Open AI Master Vault", style = MaterialTheme.typography.titleMedium)
+                Text("Open AI Master Vault", style = MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), color = androidx.compose.ui.graphics.Color.White)
             }
 
             Spacer(modifier = Modifier.height(80.dp))
